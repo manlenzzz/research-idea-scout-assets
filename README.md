@@ -11,8 +11,6 @@
   <img src="https://img.shields.io/badge/LLM-Codex%20CLI-purple" alt="LLM">
 </p>
 
-**Discover cross-domain ideas that transfer to your own research.**
-
 </div>
 
 ---
@@ -21,95 +19,55 @@
 
 **IdeaScout is a profile-guided toolkit for discovering transferable research ideas from large paper collections.**
 
-Instead of only finding papers that already match your topic, IdeaScout helps you answer a more useful research question:
+Instead of only finding papers that are already close to your topic, IdeaScout helps answer a more useful research question:
 
 > **Can the core idea of this paper transfer to my own research problem?**
 
-You define your own **research profile** — including your target tasks, preferred mechanisms, negative filters, and scoring criteria. IdeaScout then:
+Users define a **research profile** that describes their target tasks, preferred mechanisms, negative filters, and scoring criteria. IdeaScout then filters candidate papers, asks an LLM to infer each paper's core idea, scores transferability, and provides ranked outputs through both command-line tools and a lightweight web portal.
 
-- filters a large paper collection into promising candidates,
-- asks an LLM to infer each paper’s **core idea**,
-- scores whether that idea is **transferable** to your research direction,
-- and exports a ranked reading list for deeper study.
-
-It is designed for researchers who want to mine ideas from **other fields**, not just their own.
+IdeaScout is designed for researchers who want to mine ideas from **other fields**, not only from papers that share the same task keywords.
 
 ---
 
 ## 🎯 Why IdeaScout?
 
-Traditional paper search is often too narrow:
-
-- keyword search finds papers **similar in topic**, but not necessarily **useful in mechanism**;
-- reading thousands of papers manually is too slow;
-- many of the best ideas come from **other domains** with different terminology.
+Traditional paper search is often topic-driven. It finds papers that are similar to a query, but it may miss papers whose **mechanisms** are useful across domains.
 
 IdeaScout is useful when you want to:
 
-- 🔍 discover **cross-domain transferable ideas**
-- 🧠 search for **mechanisms**, not just topics
-- ⚙️ customize screening for **your own research profile**
-- 📊 rank papers by **transferability, novelty, and feasibility**
-- 🔁 run large-scale LLM scoring jobs with **resume** and **auto-retry**
+- 🔍 discover **cross-domain transferable ideas**;
+- 🧠 search for **mechanisms**, not just topics;
+- ⚙️ customize screening for **your own research profile**;
+- 📊 rank papers by **transferability, novelty, and feasibility**;
+- 🔁 run large LLM-based scoring jobs with **resume** and **auto-retry**;
+- 🌐 browse scored papers through a lightweight **web portal**.
 
 ---
 
-## 🧩 At a glance
+## 🏗️ Pipeline Overview
+
+<div align="center">
+  <img src="assets/pipeline_overview.png" alt="IdeaScout pipeline overview" width="95%">
+</div>
+
+IdeaScout separates idea discovery into two stages:
+
+1. **Rule-based candidate filtering**  
+   A fast stage that selects candidate papers using profile keywords, preferred mechanisms, and negative filters.
+
+2. **LLM-based idea scoring**  
+   A semantic stage where an LLM reads each candidate paper's title and abstract, infers the core idea, identifies the transferable mechanism, and scores the paper against the user's profile.
+
+---
+
+## 🧩 At a Glance
 
 | Step | What it does |
-|------|---------------|
+|---|---|
 | **1. Define a profile** | Describe your research task, preferred mechanisms, negative filters, and scoring dimensions. |
 | **2. Filter candidates** | Quickly prune a large paper collection using rule-based heuristics. |
-| **3. Score with an LLM** | Ask Codex to infer each paper’s idea and judge whether it transfers to your task. |
-| **4. Export top papers** | Produce ranked CSV / JSONL outputs for reading, analysis, or portal integration. |
-
----
-
-## 🧠 Core idea
-
-IdeaScout separates idea discovery into **two stages**:
-
-### 1) Rule-based candidate filtering
-
-A fast filtering stage that keeps papers likely to contain useful transferable ideas.
-
-It uses:
-
-- profile keywords,
-- preferred mechanisms,
-- negative filters,
-- and lightweight heuristic scoring.
-
-### 2) LLM-based idea scoring
-
-A slower but more meaningful scoring stage.
-
-For each candidate paper, the LLM:
-
-- reads the **title** and **abstract**,
-- infers the paper’s **core idea**,
-- identifies the **transferable mechanism**,
-- and scores how well the idea fits **your research profile**.
-
----
-
-## 🏗️ How the pipeline works
-
-```text
-Large paper collection (JSONL)
-        ↓
-Research profile (YAML)
-        ↓
-Rule-based candidate filtering
-        ↓
-Candidate papers
-        ↓
-LLM idea scoring (Codex CLI)
-        ↓
-Ranked idea list
-        ↓
-Top papers for reading / CSV / JSONL / portal
-```
+| **3. Score with an LLM** | Ask Codex to infer each paper's core idea and judge whether it transfers to your task. |
+| **4. Export or browse** | Export ranked CSV / JSONL files or inspect them through the web portal. |
 
 ---
 
@@ -118,30 +76,47 @@ Top papers for reading / CSV / JSONL / portal
 - ✅ Profile-guided idea discovery
 - ✅ Cross-domain paper screening
 - ✅ Rule-based candidate filtering
-- ✅ LLM-based idea inference and scoring
+- ✅ LLM-based core-idea inference and scoring
+- ✅ Custom scoring dimensions
 - ✅ Resume support for long-running jobs
-- ✅ Auto-retry when quota is hit
-- ✅ Export to CSV / JSONL
-- ✅ Portal-ready output preparation
-- ✅ Optional FastAPI web portal for browsing scored papers
-- ✅ Example profiles for different research directions
+- ✅ Auto-retry for quota or transient failures
+- ✅ JSONL and CSV export
+- ✅ FastAPI web portal
+- ✅ Example profiles and example input files
 
 ---
 
-## 📁 Repository structure
+## 📁 Repository Structure
 
 ```text
-idea-scout/
+research-idea-scout/
 ├── README.md
 ├── LICENSE
+├── CITATION.cff
 ├── pyproject.toml
 ├── requirements.txt
+├── assets/
+│   ├── pipeline_overview.png
+│   └── screenshots/
+│       ├── portal_home.png
+│       ├── portal_article_library.png
+│       └── portal_article_detail.png
 ├── configs/
 │   ├── profile_template.yaml
 │   ├── profile_speechprivacy_accent_example.yaml
 │   └── profile_cv_domain_adaptation_example.yaml
 ├── examples/
 │   └── example_input.jsonl
+├── idea_scout/
+│   ├── __init__.py
+│   ├── io_utils.py
+│   ├── profile.py
+│   ├── filter_candidates.py
+│   ├── codex_idea_score.py
+│   ├── run_autoretry.py
+│   ├── export_rankings.py
+│   ├── prepare_portal_ready.py
+│   └── check_progress.py
 ├── scripts/
 │   ├── filter_candidates.py
 │   ├── score_with_codex.py
@@ -149,27 +124,28 @@ idea-scout/
 │   ├── export_rankings.py
 │   ├── prepare_portal_ready.py
 │   └── check_progress.py
-└── idea_scout/
-    ├── __init__.py
-    ├── io_utils.py
-    ├── profile.py
-    ├── filter_candidates.py
-    ├── codex_idea_score.py
-    ├── run_autoretry.py
-    ├── export_rankings.py
-    ├── prepare_portal_ready.py
-    └── check_progress.py
+└── web/
+    ├── README.md
+    ├── import_jsonl.py
+    └── app/
+        ├── __init__.py
+        ├── main.py
+        ├── static/
+        │   └── style.css
+        └── templates/
+            ├── base.html
+            ├── home.html
+            ├── articles.html
+            └── article_detail.html
 ```
 
 ---
 
-## 🚀 Quick Start
-
-### 1. Clone and install
+## 🚀 Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/idea-scout.git
-cd idea-scout
+git clone https://github.com/YOUR_USERNAME/research-idea-scout.git
+cd research-idea-scout
 
 python -m venv .venv
 source .venv/bin/activate
@@ -177,16 +153,14 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
----
-
-### 2. Log in to Codex
+If you want to use Codex-based scoring, make sure the Codex CLI is available:
 
 ```bash
 codex login --device-auth
 printf 'Reply only OK\n' | codex exec -
 ```
 
-If everything works, you should see:
+Expected output:
 
 ```text
 OK
@@ -194,7 +168,32 @@ OK
 
 ---
 
-### 3. Create your profile
+## 📝 Input Format
+
+IdeaScout expects a JSONL file where each line is one paper.
+
+Minimum fields:
+
+```json
+{
+  "title": "A paper title",
+  "abstract": "The paper abstract.",
+  "venue": "ICLR",
+  "year": 2025,
+  "url": "https://example.com/paper"
+}
+```
+
+Example:
+
+```json
+{"title":"Representation Surgery for Concept Editing","abstract":"We propose a method for identifying and editing concept directions in neural representations...","venue":"ICLR","year":2025,"url":"https://example.com/paper1"}
+{"title":"Temporal Style Transfer for Motion Generation","abstract":"This paper introduces a temporal style factorization method for controllable motion generation...","venue":"CVPR","year":2026,"url":"https://example.com/paper2"}
+```
+
+---
+
+## ⚙️ Step 1: Create Your Research Profile
 
 Copy the template:
 
@@ -259,17 +258,11 @@ scoring_dimensions:
     weight: 1.0
 ```
 
+The profile is the main control interface. A precise profile gives more useful rankings.
+
 ---
 
-## 🔎 Step 1: Filter candidate papers
-
-IdeaScout expects a JSONL file where each line is one paper.
-
-Minimal input format:
-
-```json
-{"title":"A paper title","abstract":"The abstract text.","venue":"ICLR","year":2025,"url":"https://example.com"}
-```
+## 🔎 Step 2: Filter Candidate Papers
 
 Run rule-based filtering:
 
@@ -284,17 +277,21 @@ python scripts/filter_candidates.py \
   --min-score 1.0
 ```
 
-Outputs:
+This produces:
 
-- `data/candidates.jsonl`
-- `data/rejected.jsonl`
-- `reports/filter_summary.json`
+```text
+data/candidates.jsonl
+data/rejected.jsonl
+reports/filter_summary.json
+```
+
+The filtering step is fast and does not call an LLM.
 
 ---
 
-## 🤖 Step 2: Score papers with Codex
+## 🤖 Step 3: Score Papers with Codex
 
-Before running a large job, test a single paper first:
+Before running a large job, test one paper first:
 
 ```bash
 python -u scripts/score_with_codex.py \
@@ -307,7 +304,7 @@ python -u scripts/score_with_codex.py \
   --codex-cmd "codex exec"
 ```
 
-If the test works, run the full job:
+If the test works, run the full scoring job:
 
 ```bash
 nohup python -u scripts/run_autoretry.py \
@@ -327,7 +324,7 @@ nohup python -u scripts/run_autoretry.py \
 
 ---
 
-## 📊 Step 3: Check progress
+## 📊 Step 4: Check Progress
 
 ```bash
 python scripts/check_progress.py \
@@ -349,7 +346,7 @@ tail -f $(ls -t logs/run_idea_scores_*.out | head -1)
 
 ---
 
-## 🏆 Step 4: Export top-ranked papers
+## 🏆 Step 5: Export Top-Ranked Papers
 
 ```bash
 python scripts/export_rankings.py \
@@ -358,52 +355,11 @@ python scripts/export_rankings.py \
   --top-k 100
 ```
 
-This gives you a ranked CSV that you can open in Excel, Numbers, or LibreOffice.
-
-
----
-
-## 🌐 Optional Web Portal
-
-IdeaScout also includes a lightweight English web portal for browsing scored papers.
-The portal is useful when you want to inspect a ranked paper list interactively.
-It provides:
-
-- a dashboard with summary statistics;
-- an article library with search, priority filtering, and sorting;
-- article detail pages with core idea, transferable mechanism, fit reason, risk, and scores.
-
-### Import scored papers into the portal
-
-```bash
-python web/import_jsonl.py \
-  --input data/idea_scores.jsonl \
-  --db web/ideascout_portal.db
-```
-
-### Run the portal
-
-```bash
-python -m uvicorn web.app.main:app \
-  --host 127.0.0.1 \
-  --port 8080
-```
-
-Then open:
-
-```text
-http://127.0.0.1:8080
-```
-
-If the portal is running on a remote server, forward the port from your local machine:
-
-```bash
-ssh -N -L 8080:127.0.0.1:8080 user@server
-```
+This gives a ranked CSV file that can be opened in Excel, Numbers, LibreOffice, or any spreadsheet viewer.
 
 ---
 
-## 📤 Output format
+## 📤 Output Format
 
 Each scored paper contains the original metadata plus compact LLM-generated fields.
 
@@ -433,35 +389,108 @@ Example:
 
 ---
 
-## 🧪 Example profiles
+## 🌐 Web Portal
 
-IdeaScout includes a few example profiles.
+IdeaScout includes a lightweight FastAPI web portal for browsing scored papers.
 
-### 🎙️ Speech privacy + accent conversion
+The portal provides:
 
-`configs/profile_speechprivacy_accent_example.yaml`
+- a dashboard with corpus-level statistics;
+- an article library with search, filtering, and sorting;
+- article detail pages with core ideas, transferable mechanisms, risks, and score cards.
 
-Looks for ideas related to:
+### Dashboard
 
-- representation disentanglement
-- selective attribute obfuscation
-- accent conversion
-- latent editing
-- leakage control
+<div align="center">
+  <img src="assets/portal_home.png" alt="IdeaScout portal dashboard" width="95%">
+</div>
 
-### 🖼️ Computer vision domain adaptation
+### Article Library
 
-`configs/profile_cv_domain_adaptation_example.yaml`
+<div align="center">
+  <img src="assets/portal_article_library.png" alt="IdeaScout article library" width="95%">
+</div>
 
-Looks for ideas related to:
+### Article Detail
 
-- domain generalization
-- distribution shift
-- test-time adaptation
-- robust representations
-- feature alignment
+<div align="center">
+  <img src="assets/portal_article_detail.png" alt="IdeaScout article detail page" width="95%">
+</div>
 
-These are **examples only**. The intended usage is that each user creates **their own profile**.
+---
+
+## 🖥️ Run the Web Portal
+
+First, import an IdeaScout JSONL output file into the portal database:
+
+```bash
+python web/import_jsonl.py \
+  --input data/idea_scores.jsonl \
+  --db web/ideascout_portal.db
+```
+
+Then start the web server:
+
+```bash
+python -m uvicorn web.app.main:app \
+  --host 127.0.0.1 \
+  --port 8080
+```
+
+Open:
+
+```text
+http://127.0.0.1:8080
+```
+
+If you are running the portal on a remote server, use SSH port forwarding:
+
+```bash
+ssh -N -L 8080:127.0.0.1:8080 user@server
+```
+
+Then open the same local URL in your browser:
+
+```text
+http://127.0.0.1:8080
+```
+
+---
+
+## 🧪 Example Profiles
+
+IdeaScout includes example profiles for different research directions.
+
+### 🎙️ Speech Privacy and Accent Conversion
+
+```text
+configs/profile_speechprivacy_accent_example.yaml
+```
+
+This profile looks for ideas related to:
+
+- multi-attribute speech disentanglement;
+- selective attribute obfuscation;
+- accent conversion;
+- representation editing;
+- leakage control;
+- privacy-utility evaluation.
+
+### 🖼️ Computer Vision Domain Adaptation
+
+```text
+configs/profile_cv_domain_adaptation_example.yaml
+```
+
+This profile looks for ideas related to:
+
+- domain generalization;
+- distribution shift;
+- test-time adaptation;
+- robust representations;
+- feature alignment.
+
+These are examples only. The intended use is that each researcher creates their own profile.
 
 ---
 
@@ -471,10 +500,12 @@ These are **examples only**. The intended usage is that each user creates **thei
 
 If you see errors like:
 
-- `401 Unauthorized`
-- `token_invalidated`
-- `refresh_token_invalidated`
-- `Your session has ended`
+```text
+401 Unauthorized
+token_invalidated
+refresh_token_invalidated
+Your session has ended
+```
 
 Run:
 
@@ -484,8 +515,7 @@ codex login --device-auth
 printf 'Reply only OK\n' | codex exec -
 ```
 
-Then restart the same command.  
-IdeaScout will resume from the existing output file.
+Then restart the same scoring command. IdeaScout will resume from the existing output file.
 
 ---
 
@@ -519,18 +549,27 @@ nohup python -u scripts/run_autoretry.py ... > logs/run.out 2>&1 &
 
 ---
 
-## 🧭 Recommended workflow
+### Check whether the job is still running
+
+```bash
+ps -ef | grep -E 'run_autoretry|score_with_codex|codex exec' | grep -v grep
+```
+
+---
+
+## 🧭 Recommended Workflow
 
 A practical workflow for large paper collections is:
 
-1. Collect papers from conference websites, OpenReview, DBLP, or Semantic Scholar.
+1. Collect papers from conference websites, OpenReview, DBLP, Semantic Scholar, or other sources.
 2. Convert them into a JSONL file with title and abstract.
 3. Write a research profile for your own task.
-4. Run rule-based filtering to keep 1k–5k candidates.
+4. Run rule-based filtering to keep 1k--5k candidates.
 5. Run LLM-based idea scoring.
-6. Export the top 50–200 papers.
-7. Read only the most promising papers in depth.
-8. Use the highest-ranked ideas to design new methods or experiments.
+6. Export the top 50--200 papers.
+7. Browse the results in the web portal.
+8. Read only the most promising papers in depth.
+9. Use high-ranked ideas to design new methods or experiments.
 
 ---
 
@@ -539,13 +578,14 @@ A practical workflow for large paper collections is:
 Planned future features:
 
 - [ ] PDF full-text parsing
-- [ ] OpenReview collectors
+- [ ] OpenReview paper collectors
 - [ ] Semantic Scholar integration
-- [ ] Web portal for browsing scored papers
+- [ ] Web-based upload of JSONL files
 - [ ] Multi-profile comparison
 - [ ] Multi-LLM backend support
 - [ ] Mechanism-based clustering
 - [ ] BibTeX export
+- [ ] Citation graph support
 
 ---
 
@@ -555,44 +595,18 @@ Contributions are welcome.
 
 Good first contributions include:
 
-- adding new example profiles,
-- improving prompt templates,
-- adding paper collectors,
-- improving export and ranking tools,
-- building a lightweight browsing UI.
+- adding new example profiles;
+- improving prompt templates;
+- adding paper collectors;
+- improving export and ranking tools;
+- improving the web portal;
+- adding visualization support.
 
 ---
 
 ## 📄 License
 
-Released under the **MIT License**.
+This project is released under the **MIT License**.
 
 ---
-## 🌐 Web Portal
-
-IdeaScout includes a lightweight FastAPI web portal for browsing scored papers.
-
-The portal provides:
-
-- a dashboard with corpus-level statistics;
-- an article library with search, filtering, and sorting;
-- article detail pages with idea summaries and score cards.
-
-### Dashboard
-
-<div align="center">
-  <img src="assets/screenshots/portal_home.png" alt="IdeaScout portal dashboard" width="95%">
-</div>
-
-### Article Library
-
-<div align="center">
-  <img src="assets/screenshots/portal_article_library.png" alt="IdeaScout article library" width="95%">
-</div>
-
-### Article Detail
-
-<div align="center">
-  <img src="assets/screenshots/portal_article_detail.png" alt="IdeaScout article detail page" width="95%">
-</div>
 
