@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🧭 IdeaScout
+# 🧭 Research idea scout
 
 ### Profile-Guided Cross-Domain Research Idea Discovery with LLMs
 
