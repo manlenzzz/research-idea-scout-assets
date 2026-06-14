@@ -569,21 +569,6 @@ Released under the **MIT License**.
 
 ---
 
-## ⭐ Citation
-
-If IdeaScout is useful in your workflow, please cite or acknowledge the repository.
-
-```bibtex
-@misc{ideascout2026,
-  title  = {IdeaScout: Profile-Guided Cross-Domain Research Idea Discovery},
-  author = {Your Name},
-  year   = {2026},
-  note   = {GitHub repository},
-  url    = {https://github.com/YOUR_USERNAME/idea-scout}
-}
-```
-
----
 
 <div align="center">
 
