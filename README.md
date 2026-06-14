@@ -123,6 +123,7 @@ Top papers for reading / CSV / JSONL / portal
 - ✅ Auto-retry when quota is hit
 - ✅ Export to CSV / JSONL
 - ✅ Portal-ready output preparation
+- ✅ Optional FastAPI web portal for browsing scored papers
 - ✅ Example profiles for different research directions
 
 ---
@@ -359,6 +360,47 @@ python scripts/export_rankings.py \
 
 This gives you a ranked CSV that you can open in Excel, Numbers, or LibreOffice.
 
+
+---
+
+## 🌐 Optional Web Portal
+
+IdeaScout also includes a lightweight English web portal for browsing scored papers.
+The portal is useful when you want to inspect a ranked paper list interactively.
+It provides:
+
+- a dashboard with summary statistics;
+- an article library with search, priority filtering, and sorting;
+- article detail pages with core idea, transferable mechanism, fit reason, risk, and scores.
+
+### Import scored papers into the portal
+
+```bash
+python web/import_jsonl.py \
+  --input data/idea_scores.jsonl \
+  --db web/ideascout_portal.db
+```
+
+### Run the portal
+
+```bash
+python -m uvicorn web.app.main:app \
+  --host 127.0.0.1 \
+  --port 8080
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8080
+```
+
+If the portal is running on a remote server, forward the port from your local machine:
+
+```bash
+ssh -N -L 8080:127.0.0.1:8080 user@server
+```
+
 ---
 
 ## 📤 Output format
@@ -527,6 +569,23 @@ Released under the **MIT License**.
 
 ---
 
+## ⭐ Citation
+
+If IdeaScout is useful in your workflow, please cite or acknowledge the repository.
+
+```bibtex
+@misc{ideascout2026,
+  title  = {IdeaScout: Profile-Guided Cross-Domain Research Idea Discovery},
+  author = {Your Name},
+  year   = {2026},
+  note   = {GitHub repository},
+  url    = {https://github.com/YOUR_USERNAME/idea-scout}
+}
+```
+
+---
+
+<div align="center">
 
 ### 💡 One-line summary
 

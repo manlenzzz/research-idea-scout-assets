@@ -1,0 +1,1 @@
+"""IdeaScout web portal."""
