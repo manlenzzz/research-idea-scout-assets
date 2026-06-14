@@ -568,12 +568,31 @@ Good first contributions include:
 Released under the **MIT License**.
 
 ---
+## 🌐 Web Portal
 
+IdeaScout includes a lightweight FastAPI web portal for browsing scored papers.
+
+The portal provides:
+
+- a dashboard with corpus-level statistics;
+- an article library with search, filtering, and sorting;
+- article detail pages with idea summaries and score cards.
+
+### Dashboard
 
 <div align="center">
-
-### 💡 One-line summary
-
-**IdeaScout turns large paper collections into personalized ranked lists of transferable research ideas.**
-
+  <img src="assets/screenshots/portal_home.png" alt="IdeaScout portal dashboard" width="95%">
 </div>
+
+### Article Library
+
+<div align="center">
+  <img src="assets/screenshots/portal_article_library.png" alt="IdeaScout article library" width="95%">
+</div>
+
+### Article Detail
+
+<div align="center">
+  <img src="assets/screenshots/portal_article_detail.png" alt="IdeaScout article detail page" width="95%">
+</div>
+
