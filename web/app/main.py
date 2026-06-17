@@ -230,28 +230,42 @@ def filter_assets(
     q: str = "",
     code_status: str = "",
     pdf_status: str = "",
+    review_status: str = "reviewed",
     sort: str = "asset_score",
 ) -> List[Dict[str, Any]]:
     q = (q or "").strip().lower()
     code_status = (code_status or "").strip().lower()
     pdf_status = (pdf_status or "").strip().lower()
+    review_status = (review_status or "").strip().lower()
 
     def text_blob(a: Dict[str, Any]) -> str:
         raw = a.get("raw") or {}
+        review = raw.get("llm_review") if isinstance(raw.get("llm_review"), dict) else {}
         parts = [
             a.get("asset_id"), a.get("asset_type"), a.get("challenge"), a.get("solution_pattern"),
             a.get("mechanism"), a.get("why_it_is_hard"), a.get("source_title"), a.get("source_venue"),
             raw.get("limitations"), raw.get("evidence"), raw.get("transferable_to"),
+            review.get("reusable_insight"), review.get("why_it_works"), review.get("transfer_targets"),
+            review.get("non_transferable_parts"), review.get("evidence_quotes"), review.get("code_assessment"),
         ]
         return " ".join(str(x) for x in parts if x).lower()
 
     out = []
     for a in assets:
+        raw = a.get("raw") or {}
+        review = raw.get("llm_review") if isinstance(raw.get("llm_review"), dict) else {}
+        verdict = (review.get("verdict") or "").lower()
         if q and q not in text_blob(a):
             continue
         if code_status and (a.get("code_status") or "").lower() != code_status:
             continue
         if pdf_status and (a.get("pdf_status") or "").lower() != pdf_status:
+            continue
+        if review_status in {"reviewed", "llm"} and not verdict:
+            continue
+        if review_status in {"accept", "weak", "reject", "failed"} and verdict != review_status:
+            continue
+        if review_status in {"not_reviewed", "unreviewed"} and verdict:
             continue
         out.append(a)
 
@@ -324,21 +338,32 @@ def assets_page(
     q: str = Query(""),
     code_status: str = Query(""),
     pdf_status: str = Query(""),
+    review_status: str = Query("reviewed"),
     sort: str = Query("asset_score"),
     limit: int = Query(100, ge=1, le=1000),
 ) -> HTMLResponse:
     all_assets = fetch_all_assets()
-    filtered = filter_assets(all_assets, q=q, code_status=code_status, pdf_status=pdf_status, sort=sort)[:limit]
+    reviewed_total = sum(1 for a in all_assets if ((a.get("raw") or {}).get("llm_review") or {}).get("verdict"))
+    filtered = filter_assets(
+        all_assets,
+        q=q,
+        code_status=code_status,
+        pdf_status=pdf_status,
+        review_status=review_status,
+        sort=sort,
+    )[:limit]
     return templates.TemplateResponse(
         "assets.html",
         {
             "request": request,
             "assets": filtered,
             "total": len(all_assets),
+            "reviewed_total": reviewed_total,
             "shown": len(filtered),
             "q": q,
             "code_status": code_status,
             "pdf_status": pdf_status,
+            "review_status": review_status,
             "sort": sort,
             "limit": limit,
         },

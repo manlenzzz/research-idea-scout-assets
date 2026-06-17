@@ -1,24 +1,25 @@
 {% extends "base.html" %}
-{% block title %}Asset Library · IdeaScout Portal{% endblock %}
+{% block title %}Method Asset Library · IdeaScout Portal{% endblock %}
 
 {% block content %}
 <section class="page-head">
-  <h1>Asset Library</h1>
-  <p>{{ shown }} shown · {{ total }} total</p>
+  <div>
+    <h1>Method Asset Library</h1>
+    <p>{{ shown }} shown · {{ reviewed_total }} LLM reviewed · {{ total }} total assets</p>
+  </div>
 </section>
 
-<form class="card toolbar" method="get" action="/assets">
-  <input name="q" value="{{ q }}" placeholder="Search challenge, solution, mechanism..." />
+<form class="card toolbar asset-toolbar" method="get" action="/assets">
+  <input name="q" value="{{ q }}" placeholder="Search challenge, method, insight, transfer target..." />
+  <select name="review_status">
+    {% for label, value in [("LLM reviewed", "reviewed"), ("Accept", "accept"), ("Weak", "weak"), ("Reject", "reject"), ("Not reviewed", "not_reviewed"), ("All", "all")] %}
+    <option value="{{ value }}" {% if review_status == value %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
   <select name="code_status">
     <option value="" {% if not code_status %}selected{% endif %}>All code states</option>
     {% for v in ["open_source_verified", "repo_found", "missing", "unavailable", "failed"] %}
     <option value="{{ v }}" {% if code_status == v %}selected{% endif %}>{{ v }}</option>
-    {% endfor %}
-  </select>
-  <select name="pdf_status">
-    <option value="" {% if not pdf_status %}selected{% endif %}>All PDF states</option>
-    {% for v in ["parsed", "missing", "failed"] %}
-    <option value="{{ v }}" {% if pdf_status == v %}selected{% endif %}>{{ v }}</option>
     {% endfor %}
   </select>
   <select name="sort">
@@ -27,38 +28,85 @@
     <option value="evidence" {% if sort == 'evidence' %}selected{% endif %}>Evidence strength</option>
   </select>
   <select name="limit">
-    {% for v in [50, 100, 200, 500, 1000] %}
+    {% for v in [25, 50, 100, 200, 500] %}
     <option value="{{ v }}" {% if limit == v %}selected{% endif %}>Top {{ v }}</option>
     {% endfor %}
   </select>
   <button type="submit">Apply</button>
 </form>
 
-<section class="card article-list">
+<section class="asset-list">
   {% if assets %}
     {% for a in assets %}
-      {% set insight = a.raw.insight if a.raw and a.raw.insight else {} %}
-      {% set review = a.raw.llm_review if a.raw and a.raw.llm_review else {} %}
-      <a class="article-row asset-card" href="/assets/{{ a.asset_id }}">
-        <div class="article-main">
-          <h2>{{ loop.index }}. {{ a.source_title or a.challenge }}</h2>
-          <div class="meta">{{ a.source_venue }} {{ a.source_year }} · {{ a.asset_type }} · {{ a.profile_name or 'profile' }}</div>
-          <p><strong>Problem:</strong> {{ a.challenge or 'N/A' }}</p>
-          <p><strong>Method:</strong> {{ a.solution_pattern or a.mechanism or 'N/A' }}</p>
-          {% if insight.reusable_insight %}
-          <p><strong>Reusable insight:</strong> {{ insight.reusable_insight }}</p>
-          {% endif %}
-          <div class="chips">
-            <span class="chip">Asset {{ '%.2f'|format(a.asset_score or 0) }}</span>
-            <span class="chip llm-{{ review.verdict or 'not-reviewed' }}">LLM {{ review.verdict or 'not reviewed' }}{% if review.asset_quality %} · Q{{ review.asset_quality }}{% endif %}{% if review.confidence %} · {{ '%.2f'|format(review.confidence) }}{% endif %}</span>
-            <span class="chip {{ a.code_status or 'missing' }}">Code {{ a.code_status or 'missing' }}</span>
-            <span class="chip {{ a.pdf_status or 'missing' }}">PDF {{ a.pdf_status or 'missing' }}</span>
+      {% set raw = a.raw or {} %}
+      {% set review = raw.llm_review if raw.llm_review else {} %}
+      {% set insight = raw.insight if raw.insight else {} %}
+      {% set transfer_targets = review.transfer_targets or raw.transferable_to or [] %}
+      {% set boundaries = review.non_transferable_parts or raw.non_transferable_parts or [] %}
+      <article class="card method-card">
+        <a class="method-card-link" href="/assets/{{ a.asset_id }}">
+          <div class="method-card-head">
+            <div>
+              <div class="meta">{{ a.source_venue }} {{ a.source_year }} · {{ a.source_title or 'Untitled source paper' }}</div>
+              <h2>{{ loop.index }}. {{ review.reusable_insight or insight.reusable_insight or a.challenge }}</h2>
+            </div>
+            <div class="chips">
+              <span class="chip llm-{{ review.verdict or 'not-reviewed' }}">LLM {{ review.verdict or 'not reviewed' }}{% if review.asset_quality %} · Q{{ review.asset_quality }}{% endif %}</span>
+              <span class="chip {{ a.code_status or 'missing' }}">Code {{ a.code_status or 'missing' }}</span>
+              {% if review.code_assessment %}<span class="chip">Code evidence {{ review.code_assessment }}</span>{% endif %}
+            </div>
           </div>
-        </div>
-      </a>
+
+          <div class="asset-grid">
+            <div class="asset-field">
+              <span>Challenge</span>
+              <p>{{ review.challenge or a.challenge or 'N/A' }}</p>
+            </div>
+            <div class="asset-field">
+              <span>Method</span>
+              <p>{{ review.method or a.solution_pattern or a.mechanism or 'N/A' }}</p>
+            </div>
+            <div class="asset-field asset-field-wide">
+              <span>Reusable insight</span>
+              <p>{{ review.reusable_insight or insight.reusable_insight or 'N/A' }}</p>
+            </div>
+            <div class="asset-field asset-field-wide">
+              <span>Why it works</span>
+              <p>{{ review.why_it_works or a.why_it_is_hard or 'N/A' }}</p>
+            </div>
+          </div>
+
+          <div class="asset-footer-grid">
+            <div>
+              <strong>Transfer targets</strong>
+              {% if transfer_targets %}
+              <ul class="compact-list">
+                {% for item in transfer_targets[:4] %}<li>{{ item }}</li>{% endfor %}
+              </ul>
+              {% else %}
+              <p class="muted">N/A</p>
+              {% endif %}
+            </div>
+            <div>
+              <strong>Boundary</strong>
+              {% if boundaries %}
+              <ul class="compact-list">
+                {% for item in boundaries[:4] %}<li>{{ item }}</li>{% endfor %}
+              </ul>
+              {% else %}
+              <p class="muted">N/A</p>
+              {% endif %}
+            </div>
+            <div>
+              <strong>Code evidence</strong>
+              <p>{{ review.code_assessment or 'unknown' }}{% if a.code_url %} · {{ a.code_url }}{% endif %}</p>
+            </div>
+          </div>
+        </a>
+      </article>
     {% endfor %}
   {% else %}
-    <p class="empty">No assets match the current filters.</p>
+    <section class="card panel"><p class="empty">No assets match the current filters.</p></section>
   {% endif %}
 </section>
 {% endblock %}

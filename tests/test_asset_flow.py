@@ -124,3 +124,76 @@ def test_portal_import_and_asset_routes(tmp_path: Path, monkeypatch) -> None:
     client = TestClient(main.app)
     assert client.get("/assets").status_code == 200
     assert client.get(f"/assets/{asset['asset_id']}").status_code == 200
+
+
+def reviewed_asset() -> dict:
+    asset = extract_assets([sample_paper()], profile_name="test_profile")[0]
+    asset.update(
+        {
+            "challenge": "标注昂贵时，很难把新密集预测任务快速适配出来。",
+            "solution_pattern": "用视觉 token 匹配，把图像和标签 patch token 放在同一匹配空间中做少样本适配。",
+            "mechanism": "非参数 token matching 复用少量支持样本中的局部对应关系。",
+            "why_it_is_hard": "密集预测任务输出空间不同，普通 few-shot 分类接口不能直接复用。",
+            "transferable_to": ["医学分割", "机器人感知"],
+            "non_transferable_parts": ["依赖 dense label 的任务接口", "大 ViT backbone 的显存成本"],
+            "code": {"status": "repo_found", "url": "https://github.com/acme/vtm"},
+            "pdf": {"status": "parsed", "url": "file:///tmp/paper.pdf"},
+            "insight": {
+                "reusable_insight": "当任务标签空间不同但局部视觉对应可共享时，可以把输入和标签都 token 化后做少样本匹配。"
+            },
+            "llm_review": {
+                "verdict": "accept",
+                "asset_quality": 5,
+                "challenge": "标注昂贵时，很难把新密集预测任务快速适配出来。",
+                "method": "用视觉 token 匹配，把图像和标签 patch token 放在同一匹配空间中做少样本适配。",
+                "reusable_insight": "当任务标签空间不同但局部视觉对应可共享时，可以把输入和标签都 token 化后做少样本匹配。",
+                "why_it_works": "token matching 避免为每个新任务重新训练完整参数模型。",
+                "transfer_targets": ["医学分割", "机器人感知"],
+                "non_transferable_parts": ["依赖 dense label 的任务接口", "大 ViT backbone 的显存成本"],
+                "evidence_quotes": ["learn any dense task", "non-parametric matching"],
+                "code_assessment": "official",
+                "review_notes": "方法机制明确，代码可用。",
+                "confidence": 0.91,
+            },
+            "source_papers": [
+                {
+                    "title": "Universal Few-shot Learning of Dense Prediction Tasks",
+                    "venue": "ICLR",
+                    "year": 2023,
+                    "url": "https://example.org/paper",
+                }
+            ],
+        }
+    )
+    return asset
+
+
+def test_portal_asset_cards_use_reviewed_method_asset_format(tmp_path: Path, monkeypatch) -> None:
+    asset = reviewed_asset()
+    jsonl = tmp_path / "assets.jsonl"
+    jsonl.write_text(json.dumps(asset, ensure_ascii=False) + "\n", encoding="utf-8")
+    db = tmp_path / "portal.db"
+    assert import_asset_rows(jsonl, db) == 1
+
+    monkeypatch.setenv("IDEASCOUT_PORTAL_DB", str(db))
+    import importlib
+    import web.app.main as main
+
+    importlib.reload(main)
+    client = TestClient(main.app)
+    html = client.get("/assets").text
+    assert "Method Asset Library" in html
+    assert "Challenge" in html
+    assert "Method" in html
+    assert "Reusable insight" in html
+    assert "Why it works" in html
+    assert "Transfer targets" in html
+    assert "Boundary" in html
+    assert "Code evidence" in html
+    assert "official" in html
+    assert "Problem:" not in html
+
+    detail = client.get(f"/assets/{asset['asset_id']}").text
+    assert "Challenge -> Method -> Reusable Insight" in detail
+    assert "Evidence quotes" in detail
+    assert "Raw pipeline evidence" in detail
