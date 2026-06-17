@@ -138,6 +138,13 @@ def reviewed_asset() -> dict:
             "non_transferable_parts": ["依赖 dense label 的任务接口", "大 ViT backbone 的显存成本"],
             "code": {"status": "repo_found", "url": "https://github.com/acme/vtm"},
             "pdf": {"status": "parsed", "url": "file:///tmp/paper.pdf"},
+            "scores": {
+                "asset_score": 8.5,
+                "evidence_strength": 8.0,
+                "code_readiness": 9.0,
+                "transferability": 9.0,
+                "implementation_feasibility": 8.0,
+            },
             "insight": {
                 "reusable_insight": "当任务标签空间不同但局部视觉对应可共享时，可以把输入和标签都 token 化后做少样本匹配。"
             },
@@ -191,6 +198,12 @@ def test_portal_asset_cards_use_reviewed_method_asset_format(tmp_path: Path, mon
     assert "Boundary" in html
     assert "Code evidence" in html
     assert "official" in html
+    assert "article-list" in html
+    assert "article-row" in html
+    assert "Asset 8.50" in html
+    assert "Evidence 8.00" in html
+    assert "Code 9.00" in html
+    assert "LLM quality 5/5" in html
     assert "Problem:" not in html
 
     detail = client.get(f"/assets/{asset['asset_id']}").text

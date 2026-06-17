@@ -21,8 +21,12 @@
 
 <section class="card panel method-asset-detail">
   <div class="chips">
+    <span class="chip">Asset {{ '%.2f'|format(asset.asset_score or 0) }}</span>
+    <span class="chip">Evidence {{ '%.2f'|format(asset.evidence_strength or 0) }}</span>
+    <span class="chip">Code {{ '%.2f'|format(asset.code_readiness or 0) }}</span>
+    {% if review.asset_quality %}<span class="chip">LLM quality {{ review.asset_quality }}/5</span>{% endif %}
     <span class="chip llm-{{ review.verdict or 'not-reviewed' }}">LLM {{ review.verdict or 'not reviewed' }}{% if review.asset_quality %} · Quality {{ review.asset_quality }}/5{% endif %}{% if review.confidence %} · Confidence {{ '%.2f'|format(review.confidence) }}{% endif %}</span>
-    <span class="chip {{ asset.code_status or 'missing' }}">Code {{ asset.code_status or 'missing' }}</span>
+    <span class="chip {{ asset.code_status or 'missing' }}">Repo {{ asset.code_status or 'missing' }}</span>
     <span class="chip {{ asset.pdf_status or 'missing' }}">PDF {{ asset.pdf_status or 'missing' }}</span>
     {% if review.code_assessment %}<span class="chip">Code evidence {{ review.code_assessment }}</span>{% endif %}
   </div>
