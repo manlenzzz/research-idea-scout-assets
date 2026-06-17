@@ -209,21 +209,24 @@ def test_portal_asset_cards_use_reviewed_method_asset_format(tmp_path: Path, mon
     assert "asset-rank-rail" in html
     assert "asset-card-shell" in html
     assert "asset-glance" in html
-    assert "asset-brief-grid" in html
-    assert "brief-block method-brief" in html
-    assert "brief-block problem-brief" in html
-    assert "brief-block logic-brief" in html
-    assert "asset-score-rail" in html
-    assert "asset-mini-evidence" in html
+    assert "asset-reading-flow" in html
+    assert "asset-score-strip" in html
+    assert "method-context" in html
+    assert "context-line challenge-line" in html
+    assert "context-line logic-line" in html
+    assert "evidence-strip" in html
+    assert "asset-brief-grid" not in html
+    assert "brief-block" not in html
+    assert "asset-score-rail" not in html
+    assert "asset-mini-evidence" not in html
     assert "asset-section method-section" in html
     assert "asset-card-top" in html
     assert "asset-score-panel" in html
     assert "score-metric primary-score" in html
     assert "asset-lead insight-section" in html
     assert "asset-lead-text" in html
-    assert "asset-body-grid" in html
+    assert "asset-body-grid" not in html
     assert "asset-section method-section method-emphasis" in html
-    assert "support-section challenge-section" in html
     assert "asset-evidence-grid" in html
     assert "Open details" in html
     assert f'href="/assets/{asset["asset_id"]}"' in html
@@ -234,16 +237,17 @@ def test_portal_asset_cards_use_reviewed_method_asset_format(tmp_path: Path, mon
     assert "Problem:" not in html
 
     css = (Path(__file__).resolve().parents[1] / "web/app/static/style.css").read_text()
-    assert ".asset-lead p" in css and "font-weight: 760" in css
+    assert ".asset-lead p" in css and "font-weight: 720" in css
     assert ".method-section p" in css and "font-size: 15px" in css
-    assert ".support-section p" in css and "font-size: 14px" in css
+    assert ".method-context" in css and "border-top: 1px solid" in css
+    assert ".context-line p" in css and "font-size: 14px" in css
     assert ".score-metric strong" in css and "font-variant-numeric: tabular-nums" in css
     assert ".asset-overview-list" in css and "box-shadow: none" in css
     assert ".asset-overview-card" in css and "grid-template-columns: 64px minmax(0, 1fr)" in css
     assert ".asset-card-shell" in css and "box-shadow: 0 20px 48px" in css
     assert ".asset-glance p" in css and "font-size: 18px" in css
-    assert ".method-brief p" in css and "font-size: 15.5px" in css
-    assert ".problem-brief p" in css and "font-size: 13.5px" in css
+    assert ".asset-score-strip" in css and "display: flex" in css
+    assert ".evidence-strip" in css and "grid-template-columns: 1fr 1fr 1fr" in css
 
     detail = client.get(f"/assets/{asset['asset_id']}").text
     assert "Challenge -> Method -> Reusable Insight" in detail
