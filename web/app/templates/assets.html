@@ -45,45 +45,59 @@
       {% set boundaries = review.non_transferable_parts or raw.non_transferable_parts or [] %}
       <article class="article-row asset-card method-card copyable-card">
         <div class="article-main">
-          <div class="asset-row-head">
-            <div>
+          <div class="asset-card-top">
+            <div class="asset-title-block">
               <div class="meta">{{ a.source_venue }} {{ a.source_year }} · {{ a.source_title or 'Untitled source paper' }}</div>
               <h2>{{ loop.index }}. {{ review.reusable_insight or insight.reusable_insight or a.challenge }}</h2>
             </div>
-            <div class="asset-actions">
-              <div class="chips">
-                <span class="chip">Asset {{ '%.2f'|format(a.asset_score or 0) }}</span>
-                <span class="chip">Evidence {{ '%.2f'|format(a.evidence_strength or 0) }}</span>
-                <span class="chip">Code {{ '%.2f'|format(a.code_readiness or 0) }}</span>
+            <aside class="asset-score-panel">
+              <div class="score-metric primary-score" aria-label="Asset {{ '%.2f'|format(a.asset_score or 0) }}">
+                <span>Asset</span>
+                <strong>{{ '%.2f'|format(a.asset_score or 0) }}</strong>
+              </div>
+              <div class="score-metric" aria-label="Evidence {{ '%.2f'|format(a.evidence_strength or 0) }}">
+                <span>Evidence</span>
+                <strong>{{ '%.2f'|format(a.evidence_strength or 0) }}</strong>
+              </div>
+              <div class="score-metric" aria-label="Code {{ '%.2f'|format(a.code_readiness or 0) }}">
+                <span>Code</span>
+                <strong>{{ '%.2f'|format(a.code_readiness or 0) }}</strong>
+              </div>
+              <div class="asset-status-row">
                 {% if review.asset_quality %}<span class="chip">LLM quality {{ review.asset_quality }}/5</span>{% endif %}
                 <span class="chip llm-{{ review.verdict or 'not-reviewed' }}">LLM {{ review.verdict or 'not reviewed' }}{% if review.asset_quality %} · Q{{ review.asset_quality }}{% endif %}</span>
                 <span class="chip {{ a.code_status or 'missing' }}">Repo {{ a.code_status or 'missing' }}</span>
                 {% if review.code_assessment %}<span class="chip">Code evidence {{ review.code_assessment }}</span>{% endif %}
               </div>
               <a class="detail-link" href="/assets/{{ a.asset_id }}">Open details</a>
+            </aside>
+          </div>
+
+          <div class="selectable-text">
+            <section class="asset-lead insight-section">
+              <span class="asset-section-label">Reusable insight</span>
+              <p class="asset-lead-text">{{ review.reusable_insight or insight.reusable_insight or 'N/A' }}</p>
+            </section>
+
+            <div class="asset-body-grid">
+              <section class="asset-section method-section method-emphasis">
+                <span class="asset-section-label">Method</span>
+                <p>{{ review.method or a.solution_pattern or a.mechanism or 'N/A' }}</p>
+              </section>
+              <div class="asset-support-stack">
+                <section class="asset-section support-section challenge-section">
+                  <span class="asset-section-label">Challenge</span>
+                  <p>{{ review.challenge or a.challenge or 'N/A' }}</p>
+                </section>
+                <section class="asset-section support-section why-section">
+                  <span class="asset-section-label">Why it works</span>
+                  <p>{{ review.why_it_works or a.why_it_is_hard or 'N/A' }}</p>
+                </section>
+              </div>
             </div>
           </div>
 
-          <div class="asset-lines selectable-text">
-            <section class="asset-section challenge-section">
-              <span class="asset-section-label">Challenge</span>
-              <p>{{ review.challenge or a.challenge or 'N/A' }}</p>
-            </section>
-            <section class="asset-section method-section">
-              <span class="asset-section-label">Method</span>
-              <p>{{ review.method or a.solution_pattern or a.mechanism or 'N/A' }}</p>
-            </section>
-            <section class="asset-section insight-section">
-              <span class="asset-section-label">Reusable insight</span>
-              <p>{{ review.reusable_insight or insight.reusable_insight or 'N/A' }}</p>
-            </section>
-            <section class="asset-section why-section">
-              <span class="asset-section-label">Why it works</span>
-              <p>{{ review.why_it_works or a.why_it_is_hard or 'N/A' }}</p>
-            </section>
-          </div>
-
-          <div class="asset-summary-grid">
+          <div class="asset-evidence-grid">
             <div>
               <strong>Transfer targets</strong>
               {% if transfer_targets %}

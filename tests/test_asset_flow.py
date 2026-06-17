@@ -204,7 +204,15 @@ def test_portal_asset_cards_use_reviewed_method_asset_format(tmp_path: Path, mon
     assert 'class="article-row asset-card method-card" href=' not in html
     assert "selectable-text" in html
     assert "asset-section method-section" in html
-    assert "asset-section insight-section" in html
+    assert "asset-card-top" in html
+    assert "asset-score-panel" in html
+    assert "score-metric primary-score" in html
+    assert "asset-lead insight-section" in html
+    assert "asset-lead-text" in html
+    assert "asset-body-grid" in html
+    assert "asset-section method-section method-emphasis" in html
+    assert "support-section challenge-section" in html
+    assert "asset-evidence-grid" in html
     assert "Open details" in html
     assert f'href="/assets/{asset["asset_id"]}"' in html
     assert "Asset 8.50" in html
@@ -212,6 +220,12 @@ def test_portal_asset_cards_use_reviewed_method_asset_format(tmp_path: Path, mon
     assert "Code 9.00" in html
     assert "LLM quality 5/5" in html
     assert "Problem:" not in html
+
+    css = (Path(__file__).resolve().parents[1] / "web/app/static/style.css").read_text()
+    assert ".asset-lead p" in css and "font-weight: 750" in css
+    assert ".method-section p" in css and "font-size: 15px" in css
+    assert ".support-section p" in css and "font-size: 14px" in css
+    assert ".score-metric strong" in css and "font-variant-numeric: tabular-nums" in css
 
     detail = client.get(f"/assets/{asset['asset_id']}").text
     assert "Challenge -> Method -> Reusable Insight" in detail
