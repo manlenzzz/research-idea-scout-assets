@@ -62,6 +62,7 @@ ACL_EVENTS = {
     "EMNLP": "emnlp",
     "NAACL": "naacl",
 }
+ACL_ACCEPTED_CODE_ASSESSMENTS = {"official", "community"}
 
 SOURCE_GROUPS = {
     "ML": {"NEURIPS", "ICML", "ICLR"},
@@ -421,7 +422,8 @@ def parse_cvf_day_links(html_text: str, page_url: str) -> List[str]:
 def acl_allowed_volume_id(volume_id: str, venue: str) -> bool:
     volume_id = clean_text(volume_id).strip('"').lower()
     venue = norm_venue(venue).lower()
-    if "findings" in volume_id:
+    excluded = ("findings", "short", "demo", "tutorial", "workshop", "industry", "student", "srw")
+    if any(part in volume_id for part in excluded):
         return False
     if venue == "acl":
         return volume_id.endswith("acl-long") or volume_id.endswith("acl-main") or re.fullmatch(r"p\d{2}-1", volume_id) is not None
@@ -493,6 +495,8 @@ def parse_acl_anthology_event(html_text: str, venue: str, year: int) -> List[Dic
                     "pdf_url": pdf_url,
                     "source": "acl_anthology",
                     "impact_tier": "primary_unranked",
+                    "acl_volume_id": volume_id,
+                    "acl_track": "main_long",
                 }
             )
     return records
@@ -607,6 +611,19 @@ def asset_has_repo(asset: Dict[str, Any]) -> bool:
         "repo_found",
         "open_source_verified",
     }
+
+
+def acl_code_assessment(asset: Dict[str, Any]) -> str:
+    review = asset.get("llm_review") if isinstance(asset.get("llm_review"), dict) else {}
+    return clean_text(review.get("code_assessment")).lower()
+
+
+def acl_code_evidence_ok(asset: Dict[str, Any]) -> bool:
+    return asset_has_repo(asset) and acl_code_assessment(asset) in ACL_ACCEPTED_CODE_ASSESSMENTS
+
+
+def is_acl_family_record(record: Dict[str, Any]) -> bool:
+    return norm_venue(record.get("venue")) in ACL_EVENTS or clean_text(record.get("source")).lower() == "acl_anthology"
 
 
 def review_asset_if_requested(
@@ -749,6 +766,7 @@ def process_records(args: argparse.Namespace, records: List[Dict[str, Any]], bat
         "code_found": 0,
         "code_verified": 0,
         "llm_accept_or_weak": 0,
+        "acl_code_evidence_rejected": 0,
         "assets_written": len(assets_by_id),
         "rejected_or_pending": 0,
         "failed": 0,
@@ -813,6 +831,12 @@ def process_records(args: argparse.Namespace, records: List[Dict[str, Any]], bat
             review = asset.get("llm_review") if isinstance(asset.get("llm_review"), dict) else {}
             verdict = clean_text(review.get("verdict")) if review else "not_reviewed"
             quality = int(review.get("asset_quality") or 0) if review else 0
+            if is_acl_family_record(record) and not acl_code_evidence_ok(asset):
+                stats["acl_code_evidence_rejected"] += 1
+                stats["rejected_or_pending"] += 1
+                assessment = acl_code_assessment(asset) or "missing"
+                append_jsonl(rejected_path, asset | {"reject_reason": f"acl_code_assessment_{assessment}"})
+                continue
             if args.no_llm or (verdict in {"accept", "weak"} and quality >= args.min_llm_quality):
                 stats["llm_accept_or_weak"] += 1
                 assets_by_id[clean_text(asset["asset_id"])] = asset

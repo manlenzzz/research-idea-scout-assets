@@ -3,6 +3,8 @@ from __future__ import annotations
 from idea_scout.high_impact_harvest import (
     EXCEPTIONAL_VENUES,
     PRIMARY_VENUES,
+    acl_code_evidence_ok,
+    acl_allowed_volume_id,
     selected_sources,
     parse_acl_anthology_event,
     openalex_work_to_record,
@@ -129,6 +131,8 @@ def test_acl_parser_only_keeps_main_or_long_volume_papers() -> None:
             "pdf_url": "https://aclanthology.org/2024.acl-long.1.pdf",
             "source": "acl_anthology",
             "impact_tier": "primary_unranked",
+            "acl_volume_id": "2024acl-long",
+            "acl_track": "main_long",
         }
     ]
 
@@ -162,8 +166,43 @@ def test_acl_parser_keeps_older_p16_main_volume() -> None:
             "pdf_url": "https://aclanthology.org/P16-1001.pdf",
             "source": "acl_anthology",
             "impact_tier": "primary_unranked",
+            "acl_volume_id": "p16-1",
+            "acl_track": "main_long",
         }
     ]
+
+
+def test_acl_family_volume_gate_keeps_only_main_or_long() -> None:
+    assert acl_allowed_volume_id("2024.acl-long", "ACL") is True
+    assert acl_allowed_volume_id("2024.acl-main", "ACL") is True
+    assert acl_allowed_volume_id("2024.acl-short", "ACL") is False
+    assert acl_allowed_volume_id("2024.findings-acl", "ACL") is False
+
+    assert acl_allowed_volume_id("2024.emnlp-main", "EMNLP") is True
+    assert acl_allowed_volume_id("2024.findings-emnlp", "EMNLP") is False
+    assert acl_allowed_volume_id("D16-1", "EMNLP") is True
+    assert acl_allowed_volume_id("D16-2", "EMNLP") is False
+
+    assert acl_allowed_volume_id("2024.naacl-main", "NAACL") is True
+    assert acl_allowed_volume_id("2024.naacl-long", "NAACL") is True
+    assert acl_allowed_volume_id("2024.naacl-short", "NAACL") is False
+    assert acl_allowed_volume_id("N16-1", "NAACL") is True
+    assert acl_allowed_volume_id("N16-2", "NAACL") is False
+
+
+def test_acl_code_evidence_requires_llm_reviewed_implementation() -> None:
+    base = {
+        "code": {
+            "url": "https://github.com/example/project",
+            "status": "repo_found",
+        }
+    }
+
+    assert acl_code_evidence_ok(base | {"llm_review": {"code_assessment": "official"}}) is True
+    assert acl_code_evidence_ok(base | {"llm_review": {"code_assessment": "community"}}) is True
+    assert acl_code_evidence_ok(base | {"llm_review": {"code_assessment": "unknown"}}) is False
+    assert acl_code_evidence_ok(base | {"llm_review": {"code_assessment": "missing"}}) is False
+    assert acl_code_evidence_ok(base) is False
 
 
 def test_selected_sources_normalizes_source_groups_and_venues() -> None:
