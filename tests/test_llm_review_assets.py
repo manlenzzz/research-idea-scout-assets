@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from idea_scout.llm_review_assets import parse_review_json, review_one
+from idea_scout.llm_review_assets import annotate_review_metadata, parse_review_json, provider_cache_dir, review_one
 
 
 def sample_asset() -> dict:
@@ -117,3 +117,13 @@ def test_review_one_preserves_fields_when_llm_rejects_asset() -> None:
     assert reviewed["solution_pattern"] == "Old heuristic method."
     assert reviewed["scores"]["evidence_strength"] <= 3.0
     assert "LLM rejected asset" in reviewed["limitations"][0]
+
+
+def test_review_metadata_marks_provider_and_model(tmp_path) -> None:
+    asset = {"asset_id": "a1", "llm_review": {"verdict": "accept", "asset_quality": 5}}
+
+    annotated = annotate_review_metadata(asset, "codex", "gpt-5.5")
+
+    assert annotated["llm_review"]["review_provider"] == "codex"
+    assert annotated["llm_review"]["review_model"] == "gpt-5.5"
+    assert provider_cache_dir(tmp_path, "codex", "gpt-5.5") != provider_cache_dir(tmp_path, "command", "claude -p")

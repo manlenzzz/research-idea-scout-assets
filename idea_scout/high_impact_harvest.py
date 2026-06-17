@@ -21,7 +21,7 @@ from .assets import read_assets, row_to_asset, stable_asset_id, utc_now, write_a
 from .discover_code import discover_one
 from .ingest_pdf import extract_text, ingest_one
 from .io_utils import clean_text, read_jsonl, write_jsonl
-from .llm_review_assets import default_claude_runner, review_one
+from .llm_review_assets import annotate_review_metadata, build_runner, provider_cache_dir, reviewer_identity, Runner, review_one
 from .verify_code import verify_one
 
 
@@ -611,15 +611,26 @@ def asset_has_repo(asset: Dict[str, Any]) -> bool:
 
 def review_asset_if_requested(
     asset: Dict[str, Any],
+    provider: str,
+    model: str,
     model_command: str,
+    openai_base_url: str,
     timeout: int,
     cache_dir: Path,
     no_llm: bool,
 ) -> Dict[str, Any]:
     if no_llm:
         return asset
-    runner = default_claude_runner(model_command)
-    return review_one(asset, runner=runner, timeout=timeout, cache_dir=cache_dir, use_cache=True)
+    reviewer_model = reviewer_identity(provider, model, model_command)
+    runner = build_runner(provider, model, model_command, openai_base_url)
+    reviewed = review_one(
+        asset,
+        runner=runner,
+        timeout=timeout,
+        cache_dir=provider_cache_dir(cache_dir, provider, reviewer_model),
+        use_cache=True,
+    )
+    return annotate_review_metadata(reviewed, provider=provider, reviewer_model=reviewer_model)
 
 
 def append_jsonl(path: Path, row: Dict[str, Any]) -> None:
@@ -647,6 +658,8 @@ def write_manifest(batch_dir: Path, args: argparse.Namespace, stats: Dict[str, i
         "assets_path": str(assets_path),
         "delete_pdfs": args.delete_pdfs,
         "no_llm": args.no_llm,
+        "review_provider": args.review_provider,
+        "review_model": args.review_model,
     }
     (batch_dir / "MANIFEST.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -789,7 +802,10 @@ def process_records(args: argparse.Namespace, records: List[Dict[str, Any]], bat
 
             asset = review_asset_if_requested(
                 asset,
+                provider=args.review_provider,
+                model=args.review_model,
                 model_command=args.model_command,
+                openai_base_url=args.openai_base_url,
                 timeout=args.llm_timeout,
                 cache_dir=review_cache,
                 no_llm=args.no_llm,
@@ -874,7 +890,10 @@ def main() -> None:
     parser.add_argument("--max-records", type=int, default=0, help="0 means all collected candidates.")
     parser.add_argument("--timeout", type=int, default=45)
     parser.add_argument("--llm-timeout", type=int, default=180)
-    parser.add_argument("--model-command", default="claude -p")
+    parser.add_argument("--review-provider", choices=["codex", "openai", "command"], default="codex")
+    parser.add_argument("--review-model", default=os.environ.get("PAPERHUB_AGENT_MODEL", "gpt-5.5"))
+    parser.add_argument("--openai-base-url", default=os.environ.get("OPENAI_BASE_URL", ""))
+    parser.add_argument("--model-command", default="claude -p", help="Only used with --review-provider command.")
     parser.add_argument("--include-exceptional", action="store_true")
     parser.add_argument("--no-llm", action="store_true")
     parser.add_argument("--no-github-search", action="store_true")

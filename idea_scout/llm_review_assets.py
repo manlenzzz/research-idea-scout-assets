@@ -3,9 +3,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shlex
 import subprocess
+import tempfile
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List
 
@@ -187,6 +192,142 @@ def default_claude_runner(command: str) -> Runner:
     return run
 
 
+def openai_chat_completions_url(base_url: str) -> str:
+    base = clean_text(base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com").rstrip("/")
+    if base.endswith("/v1"):
+        return f"{base}/chat/completions"
+    return f"{base}/v1/chat/completions"
+
+
+def default_openai_runner(model: str = "", base_url: str = "") -> Runner:
+    model_name = clean_text(model or os.environ.get("PAPERHUB_AGENT_MODEL") or "gpt-5.5")
+    endpoint = openai_chat_completions_url(base_url)
+
+    def run(prompt: str, timeout: int) -> str:
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is not set")
+        payload = {
+            "model": model_name,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a strict research asset reviewer. Return only one valid JSON object.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+        }
+        req = urllib.request.Request(
+            endpoint,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "research-idea-scout-assets",
+            },
+            method="POST",
+        )
+        raw = ""
+        for attempt in range(3):
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    raw = resp.read().decode("utf-8", errors="ignore")
+                break
+            except urllib.error.HTTPError as e:
+                detail = e.read().decode("utf-8", errors="ignore")[-1000:]
+                if e.code in {429, 500, 502, 503, 504} and attempt < 2:
+                    time.sleep(2**attempt)
+                    continue
+                raise RuntimeError(f"OpenAI-compatible review call failed with HTTP {e.code}: {detail}") from e
+        data = json.loads(raw)
+        choices = data.get("choices") if isinstance(data, dict) else None
+        if not choices:
+            raise RuntimeError("OpenAI-compatible review response has no choices")
+        first = choices[0] if isinstance(choices[0], dict) else {}
+        message = first.get("message") if isinstance(first.get("message"), dict) else {}
+        content = clean_text(message.get("content") or first.get("text"), 20000)
+        if not content:
+            raise RuntimeError("OpenAI-compatible review response has empty content")
+        return content
+
+    return run
+
+
+def default_codex_runner(model: str = "", extra_args: str = "") -> Runner:
+    model_name = clean_text(model or os.environ.get("PAPERHUB_AGENT_MODEL") or "gpt-5.5")
+    extra = shlex.split(extra_args or os.environ.get("IDEASCOUT_CODEX_EXTRA_ARGS", ""))
+
+    def run(prompt: str, timeout: int) -> str:
+        tmp_path = Path(tempfile.mkstemp(prefix="ideascout-codex-review-", suffix=".txt")[1])
+        cmd = [
+            "codex",
+            "exec",
+            "-m",
+            model_name,
+            "--skip-git-repo-check",
+            "--ephemeral",
+            "--color",
+            "never",
+            "--output-last-message",
+            str(tmp_path),
+            *extra,
+            prompt,
+        ]
+        try:
+            completed = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=timeout)
+            final = tmp_path.read_text(encoding="utf-8") if tmp_path.exists() else ""
+            if completed.returncode != 0:
+                detail = (completed.stderr or completed.stdout or "")[-2000:]
+                raise RuntimeError(f"codex review failed with exit {completed.returncode}: {detail}")
+            final = clean_text(final, 20000)
+            if not final:
+                raise RuntimeError("codex review produced an empty final message")
+            return final
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    return run
+
+
+def build_runner(provider: str, model: str, model_command: str, openai_base_url: str = "") -> Runner:
+    if provider == "openai":
+        return default_openai_runner(model=model, base_url=openai_base_url)
+    if provider == "codex":
+        return default_codex_runner(model=model)
+    if provider == "command":
+        return default_claude_runner(model_command)
+    raise ValueError(f"unsupported review provider: {provider}")
+
+
+def reviewer_identity(provider: str, model: str, model_command: str) -> str:
+    if provider in {"codex", "openai"}:
+        return clean_text(model or os.environ.get("PAPERHUB_AGENT_MODEL") or "gpt-5.5")
+    return clean_text(model_command)
+
+
+def cache_component(value: str) -> str:
+    text = clean_text(value).lower()
+    text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+    return text[:96] or "default"
+
+
+def provider_cache_dir(base_dir: str | Path, provider: str, reviewer_model: str) -> Path:
+    return Path(base_dir) / cache_component(provider) / cache_component(reviewer_model)
+
+
+def annotate_review_metadata(asset: Dict[str, Any], provider: str, reviewer_model: str) -> Dict[str, Any]:
+    review = asset.get("llm_review") if isinstance(asset.get("llm_review"), dict) else None
+    if not review:
+        return asset
+    out = dict(asset)
+    out["llm_review"] = {
+        **review,
+        "review_provider": clean_text(provider),
+        "review_model": clean_text(reviewer_model),
+    }
+    return out
+
+
 def review_cache_key(asset: Dict[str, Any]) -> str:
     payload = json.dumps(evidence_package(asset), ensure_ascii=False, sort_keys=True)
     digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
@@ -269,20 +410,42 @@ def apply_review(asset: Dict[str, Any], review: Dict[str, Any]) -> Dict[str, Any
 
     scores = out.get("scores") if isinstance(out.get("scores"), dict) else {}
     out["scores"] = dict(scores)
+
+    # The LLM verdict is authoritative. Map its judgement onto every scoring
+    # dimension so a high-quality "accept" is not dragged down by stale
+    # pipeline defaults (transferability / code_readiness used to be untouched
+    # by the review, which made strong assets score as low as weak ones).
+    code_assessment = review["code_assessment"]
+    code_readiness = {"official": 9.0, "community": 6.0, "unknown": 2.0, "missing": 0.0}.get(
+        code_assessment, 2.0
+    )
+    # asset_quality is the reviewer's 1-5 confidence that this is a reusable
+    # asset; scale it to 0-10 and lift it when concrete transfer targets exist.
+    transferability = float(quality) * 2.0
+    if review["transfer_targets"]:
+        transferability = min(10.0, transferability + 1.0)
+
     if verdict == "accept":
         out["scores"]["evidence_strength"] = max(float(out["scores"].get("evidence_strength", 0) or 0), 8.0)
         out["scores"]["implementation_feasibility"] = max(
             float(out["scores"].get("implementation_feasibility", 0) or 0),
-            6.0 if review["code_assessment"] in {"official", "community"} else 3.0,
+            6.0 if code_assessment in {"official", "community"} else 3.0,
         )
+        out["scores"]["transferability"] = max(transferability, 6.0)
+        out["scores"]["code_readiness"] = code_readiness
     elif verdict == "weak":
         out["scores"]["evidence_strength"] = max(float(out["scores"].get("evidence_strength", 0) or 0), 5.0)
+        out["scores"]["transferability"] = transferability
+        out["scores"]["code_readiness"] = code_readiness
     else:
         out["scores"]["evidence_strength"] = min(float(out["scores"].get("evidence_strength", 0) or 0), 3.0)
         out["scores"]["implementation_feasibility"] = min(
             float(out["scores"].get("implementation_feasibility", 0) or 0),
             2.0,
         )
+        out["scores"]["transferability"] = min(transferability, 3.0)
+        out["scores"]["code_readiness"] = min(code_readiness, 2.0)
+
     out["scores"]["asset_score"] = compute_asset_score(out)
     out["updated_at"] = utc_now()
     return out
@@ -373,7 +536,10 @@ def main() -> None:
     ap.add_argument("--only-code-status", default="")
     ap.add_argument("--timeout", type=int, default=120)
     ap.add_argument("--cache-dir", default="data/llm_review_cache")
-    ap.add_argument("--model-command", default="claude -p")
+    ap.add_argument("--review-provider", choices=["codex", "openai", "command"], default="codex")
+    ap.add_argument("--review-model", default=os.environ.get("PAPERHUB_AGENT_MODEL", "gpt-5.5"))
+    ap.add_argument("--openai-base-url", default=os.environ.get("OPENAI_BASE_URL", ""))
+    ap.add_argument("--model-command", default="claude -p", help="Only used with --review-provider command.")
     ap.add_argument("--no-cache", action="store_true")
     ap.add_argument("--retry-existing", action="store_true")
     ap.add_argument("--prompt-preview", default="", help="Write prompts as JSONL instead of calling the model.")
@@ -392,16 +558,18 @@ def main() -> None:
         print(json.dumps({"prompt_preview": args.prompt_preview, "rows": len(rows)}, indent=2))
         return
 
-    runner = default_claude_runner(args.model_command)
+    reviewer_model = reviewer_identity(args.review_provider, args.review_model, args.model_command)
+    runner = build_runner(args.review_provider, args.review_model, args.model_command, args.openai_base_url)
     reviewed, stats = review_assets(
         assets,
         runner=runner,
         limit=args.limit,
         only_code_status=args.only_code_status,
         timeout=args.timeout,
-        cache_dir=None if args.no_cache else args.cache_dir,
+        cache_dir=None if args.no_cache else provider_cache_dir(args.cache_dir, args.review_provider, reviewer_model),
         skip_existing=not args.retry_existing,
     )
+    reviewed = [annotate_review_metadata(asset, args.review_provider, reviewer_model) for asset in reviewed]
     write_assets(args.output, reviewed)
     verdicts: Dict[str, int] = {}
     for asset in reviewed:

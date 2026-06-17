@@ -10,6 +10,7 @@ from idea_scout.high_impact_harvest import (
     parse_cvf_day_links,
     passes_impact_policy,
 )
+from idea_scout.llm_review_assets import annotate_review_metadata, build_runner, openai_chat_completions_url, provider_cache_dir
 
 
 def test_secondary_venues_are_exceptional_not_primary() -> None:
@@ -168,3 +169,24 @@ def test_acl_parser_keeps_older_p16_main_volume() -> None:
 def test_selected_sources_normalizes_source_groups_and_venues() -> None:
     assert selected_sources("ml,acl,cvf") == {"NEURIPS", "ICML", "ICLR", "ACL", "EMNLP", "NAACL", "CVPR", "ICCV"}
     assert selected_sources("acl,iclr") == {"ACL", "EMNLP", "NAACL", "ICLR"}
+
+
+def test_openai_chat_completions_url_normalizes_base_url() -> None:
+    assert openai_chat_completions_url("https://api.openai.com") == "https://api.openai.com/v1/chat/completions"
+    assert openai_chat_completions_url("https://proxy.example/v1") == "https://proxy.example/v1/chat/completions"
+
+
+def test_review_metadata_and_cache_are_model_specific(tmp_path) -> None:
+    asset = {"asset_id": "a1", "llm_review": {"verdict": "accept", "asset_quality": 5}}
+
+    annotated = annotate_review_metadata(asset, provider="openai", reviewer_model="gpt-5.5")
+
+    assert annotated["llm_review"]["review_provider"] == "openai"
+    assert annotated["llm_review"]["review_model"] == "gpt-5.5"
+    assert provider_cache_dir(tmp_path, "openai", "gpt-5.5") != provider_cache_dir(tmp_path, "command", "claude -p")
+
+
+def test_codex_review_provider_builds_runner() -> None:
+    runner = build_runner("codex", "gpt-5.5", "claude -p")
+
+    assert callable(runner)
