@@ -200,6 +200,13 @@ def test_portal_asset_cards_use_reviewed_method_asset_format(tmp_path: Path, mon
     assert "official" in html
     assert "article-list" in html
     assert "article-row" in html
+    assert '<article class="article-row asset-card method-card copyable-card">' in html
+    assert 'class="article-row asset-card method-card" href=' not in html
+    assert "selectable-text" in html
+    assert "asset-section method-section" in html
+    assert "asset-section insight-section" in html
+    assert "Open details" in html
+    assert f'href="/assets/{asset["asset_id"]}"' in html
     assert "Asset 8.50" in html
     assert "Evidence 8.00" in html
     assert "Code 9.00" in html
