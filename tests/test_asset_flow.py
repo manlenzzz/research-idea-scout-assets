@@ -200,9 +200,20 @@ def test_portal_asset_cards_use_reviewed_method_asset_format(tmp_path: Path, mon
     assert "official" in html
     assert "article-list" in html
     assert "article-row" in html
-    assert '<article class="article-row asset-card method-card copyable-card">' in html
+    assert 'class="article-row asset-card method-card copyable-card asset-overview-card"' in html
     assert 'class="article-row asset-card method-card" href=' not in html
     assert "selectable-text" in html
+    assert "asset-overview-list" in html
+    assert "asset-overview-card" in html
+    assert "asset-rank-rail" in html
+    assert "asset-card-shell" in html
+    assert "asset-glance" in html
+    assert "asset-brief-grid" in html
+    assert "brief-block method-brief" in html
+    assert "brief-block problem-brief" in html
+    assert "brief-block logic-brief" in html
+    assert "asset-score-rail" in html
+    assert "asset-mini-evidence" in html
     assert "asset-section method-section" in html
     assert "asset-card-top" in html
     assert "asset-score-panel" in html
@@ -222,10 +233,16 @@ def test_portal_asset_cards_use_reviewed_method_asset_format(tmp_path: Path, mon
     assert "Problem:" not in html
 
     css = (Path(__file__).resolve().parents[1] / "web/app/static/style.css").read_text()
-    assert ".asset-lead p" in css and "font-weight: 750" in css
+    assert ".asset-lead p" in css and "font-weight: 760" in css
     assert ".method-section p" in css and "font-size: 15px" in css
     assert ".support-section p" in css and "font-size: 14px" in css
     assert ".score-metric strong" in css and "font-variant-numeric: tabular-nums" in css
+    assert ".asset-overview-list" in css and "box-shadow: none" in css
+    assert ".asset-overview-card" in css and "grid-template-columns: 64px minmax(0, 1fr)" in css
+    assert ".asset-card-shell" in css and "box-shadow: 0 20px 48px" in css
+    assert ".asset-glance p" in css and "font-size: 18px" in css
+    assert ".method-brief p" in css and "font-size: 15.5px" in css
+    assert ".problem-brief p" in css and "font-size: 13.5px" in css
 
     detail = client.get(f"/assets/{asset['asset_id']}").text
     assert "Challenge -> Method -> Reusable Insight" in detail
