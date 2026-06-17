@@ -189,6 +189,7 @@ def test_portal_asset_cards_use_reviewed_method_asset_format(tmp_path: Path, mon
     importlib.reload(main)
     client = TestClient(main.app)
     html = client.get("/assets").text
+    assert "/static/style.css?v=" in html
     assert "Method Asset Library" in html
     assert "Challenge" in html
     assert "Method" in html

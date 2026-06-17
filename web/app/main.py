@@ -21,6 +21,16 @@ app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="stati
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 
 
+def static_asset(path: str) -> str:
+    normalized = path.lstrip("/")
+    file_path = APP_DIR / "static" / normalized
+    version = int(file_path.stat().st_mtime) if file_path.exists() else 0
+    return f"/static/{normalized}?v={version}"
+
+
+templates.env.globals["static_asset"] = static_asset
+
+
 def connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
