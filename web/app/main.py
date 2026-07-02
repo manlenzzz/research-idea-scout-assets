@@ -3,17 +3,21 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
+from urllib.parse import parse_qs
+from posixpath import basename, dirname, normpath, relpath
 
 from fastapi import FastAPI, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 APP_DIR = Path(__file__).resolve().parent
 WEB_DIR = APP_DIR.parent
-DEFAULT_DB = WEB_DIR / "ideascout_portal.db"
+ASSET_STORE_ROOT = Path(os.environ.get("IDEASCOUT_ASSET_STORE", "/vePFS-Mindverse/user/intern/zhouch/asset_store")).resolve()
+DEFAULT_DB = ASSET_STORE_ROOT / "portal.db"
 DB_PATH = Path(os.environ.get("IDEASCOUT_PORTAL_DB", str(DEFAULT_DB))).resolve()
 
 app = FastAPI(title="IdeaScout Portal", version="0.1.0")
@@ -21,14 +25,59 @@ app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="stati
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 
 
-def static_asset(path: str) -> str:
+def rel_url(path: str, depth: int = 0) -> str:
+    normalized = str(path or "").lstrip("/")
+    prefix = "../" * max(depth, 0)
+    if normalized:
+        return f"{prefix}{normalized}"
+    return prefix or "."
+
+
+templates.env.globals["rel_url"] = rel_url
+
+
+def app_path(path: str) -> str:
+    raw = str(path or "").strip()
+    if not raw:
+        return "/"
+    if raw.startswith(("http://", "https://")):
+        return raw
+    normalized = normpath("/" + raw.lstrip("/"))
+    return normalized if normalized.startswith("/") else f"/{normalized}"
+
+
+def relative_redirect_url(path: str, current_path: str, fallback: str = "/") -> str:
+    raw = str(path or "").strip()
+    if not raw or raw.startswith(("http://", "https://", "//")):
+        raw = fallback
+    target = app_path(raw)
+    if target.startswith(("http://", "https://", "//")):
+        target = app_path(fallback)
+    current = app_path(current_path)
+    current_dir = dirname(current) or "/"
+    clean_target = target.rstrip("/") or "/"
+    clean_current_dir = current_dir.rstrip("/") or "/"
+    if clean_target == clean_current_dir and clean_target != "/":
+        return f"../{basename(clean_target)}"
+    return relpath(clean_target, start=clean_current_dir)
+
+
+def static_asset(path: str, depth: int = 0) -> str:
     normalized = path.lstrip("/")
     file_path = APP_DIR / "static" / normalized
     version = int(file_path.stat().st_mtime) if file_path.exists() else 0
-    return f"/static/{normalized}?v={version}"
+    return f"{rel_url(f'static/{normalized}', depth)}?v={version}"
 
 
 templates.env.globals["static_asset"] = static_asset
+
+
+def asset_file_url(path: str, depth: int = 0) -> str:
+    normalized = str(path or "").replace("\\", "/").lstrip("/")
+    return rel_url(f"asset-files/{normalized}", depth) if normalized else ""
+
+
+templates.env.globals["asset_file_url"] = asset_file_url
 
 
 def connect() -> sqlite3.Connection:
@@ -95,6 +144,29 @@ def ensure_db() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_score ON assets(asset_score DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_code_status ON assets(code_status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_pdf_status ON assets(pdf_status)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS asset_user_state (
+                asset_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL DEFAULT 'unseen',
+                starred INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                completed_on TEXT
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_asset_user_state_status ON asset_user_state(status)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS asset_tags (
+                asset_id TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (asset_id, tag)
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_asset_tags_tag ON asset_tags(tag)")
 
 
 def row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
@@ -110,6 +182,19 @@ def row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
     return obj
 
 
+def safe_asset_file_path(rel_path: str) -> Path | None:
+    if not rel_path or rel_path.startswith(("/", "\\")):
+        return None
+    candidate = (ASSET_STORE_ROOT / rel_path).resolve()
+    try:
+        candidate.relative_to(ASSET_STORE_ROOT)
+    except ValueError:
+        return None
+    if not candidate.is_file():
+        return None
+    return candidate
+
+
 def fetch_all_articles() -> List[Dict[str, Any]]:
     ensure_db()
     with connect() as conn:
@@ -122,7 +207,133 @@ def fetch_all_assets() -> List[Dict[str, Any]]:
     ensure_db()
     with connect() as conn:
         rows = conn.execute("SELECT * FROM assets").fetchall()
-    return [row_to_dict(r) for r in rows]
+        states = {
+            row["asset_id"]: dict(row)
+            for row in conn.execute("SELECT asset_id, status, starred, updated_at, completed_on FROM asset_user_state")
+        }
+        tag_rows = conn.execute("SELECT asset_id, tag FROM asset_tags ORDER BY created_at, tag").fetchall()
+    tags: Dict[str, List[str]] = {}
+    for row in tag_rows:
+        tags.setdefault(row["asset_id"], []).append(row["tag"])
+    assets = [row_to_dict(r) for r in rows]
+    for asset in assets:
+        attach_asset_user_fields(asset, states=states, tags=tags)
+    return assets
+
+
+def attach_asset_user_fields(
+    asset: Dict[str, Any],
+    states: Dict[str, Dict[str, Any]] | None = None,
+    tags: Dict[str, List[str]] | None = None,
+) -> Dict[str, Any]:
+    asset_id = asset.get("asset_id")
+    if states is None or tags is None:
+        ensure_db()
+        with connect() as conn:
+            state_row = conn.execute(
+                "SELECT asset_id, status, starred, updated_at, completed_on FROM asset_user_state WHERE asset_id = ?",
+                (asset_id,),
+            ).fetchone()
+            tag_rows = conn.execute("SELECT tag FROM asset_tags WHERE asset_id = ? ORDER BY created_at, tag", (asset_id,)).fetchall()
+        states = {asset_id: dict(state_row)} if state_row else {}
+        tags = {asset_id: [row["tag"] for row in tag_rows]}
+    asset["user_state"] = states.get(asset_id, {"status": "unseen", "starred": 0, "completed_on": ""})
+    asset["tags"] = tags.get(asset_id, [])
+    asset["cluster"] = infer_asset_cluster(asset)
+    return asset
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def today_key() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def asset_text_for_cluster(asset: Dict[str, Any]) -> str:
+    raw = asset.get("raw") or {}
+    review = raw.get("llm_review") if isinstance(raw.get("llm_review"), dict) else {}
+    reader = raw.get("reader_card") if isinstance(raw.get("reader_card"), dict) else {}
+    terms = reader.get("key_terms") if isinstance(reader.get("key_terms"), list) else []
+    term_text = " ".join(str(t.get("term") or "") for t in terms if isinstance(t, dict))
+    parts = [
+        asset.get("challenge"),
+        asset.get("solution_pattern"),
+        asset.get("mechanism"),
+        asset.get("source_title"),
+        review.get("method"),
+        review.get("reusable_insight"),
+        review.get("why_it_works"),
+        review.get("transfer_targets"),
+        term_text,
+    ]
+    return " ".join(str(x) for x in parts if x).lower()
+
+
+def infer_asset_cluster(asset: Dict[str, Any]) -> str:
+    text = asset_text_for_cluster(asset)
+    rules = [
+        ("Flow / posterior modeling", ["flow", "posterior", "variational", "jacobian", "density"]),
+        ("Token matching / dense prediction", ["token matching", "dense prediction", "patch", "segmentation"]),
+        ("Retrieval / memory augmentation", ["retrieval", "retrieve", "memory", "nearest", "index"]),
+        ("Diffusion / generation control", ["diffusion", "denoising", "generation", "generative"]),
+        ("Graph / structure reasoning", ["graph", "node", "edge", "structure"]),
+        ("Attention / representation learning", ["attention", "transformer", "representation", "embedding"]),
+        ("Optimization / training dynamics", ["optimization", "gradient", "training dynamics", "curriculum"]),
+    ]
+    for label, keywords in rules:
+        if any(keyword in text for keyword in keywords):
+            return label
+    return "General reusable method"
+
+
+def collect_asset_clusters(assets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    counts: Dict[str, int] = {}
+    for asset in assets:
+        label = asset.get("cluster") or infer_asset_cluster(asset)
+        counts[label] = counts.get(label, 0) + 1
+    return [{"label": label, "count": counts[label]} for label in sorted(counts)]
+
+
+def collect_asset_tags(assets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    counts: Dict[str, int] = {}
+    for asset in assets:
+        for tag in asset.get("tags") or []:
+            counts[tag] = counts.get(tag, 0) + 1
+    return [{"tag": tag, "count": counts[tag]} for tag in sorted(counts)]
+
+
+def set_asset_state(asset_id: str, status: str, tag: str = "") -> None:
+    ensure_db()
+    normalized = (status or "reading").strip().lower()
+    if normalized not in {"unseen", "reading", "done", "skip", "starred"}:
+        normalized = "reading"
+    now = utc_now()
+    completed_on = today_key() if normalized == "done" else None
+    starred = 1 if normalized == "starred" else 0
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO asset_user_state (asset_id, status, starred, updated_at, completed_on)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(asset_id) DO UPDATE SET
+                status = excluded.status,
+                starred = CASE WHEN excluded.starred = 1 THEN 1 ELSE asset_user_state.starred END,
+                updated_at = excluded.updated_at,
+                completed_on = excluded.completed_on
+            """,
+            (asset_id, normalized, starred, now, completed_on),
+        )
+        clean_tag = " ".join((tag or "").strip().split())
+        if clean_tag:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO asset_tags (asset_id, tag, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (asset_id, clean_tag, now),
+            )
 
 
 def score_value(article: Dict[str, Any], key: str) -> float:
@@ -241,12 +452,18 @@ def filter_assets(
     code_status: str = "",
     pdf_status: str = "",
     review_status: str = "reviewed",
+    status: str = "",
+    tag: str = "",
+    cluster: str = "",
     sort: str = "asset_score",
 ) -> List[Dict[str, Any]]:
     q = (q or "").strip().lower()
     code_status = (code_status or "").strip().lower()
     pdf_status = (pdf_status or "").strip().lower()
     review_status = (review_status or "").strip().lower()
+    status = (status or "").strip().lower()
+    tag = (tag or "").strip()
+    cluster = (cluster or "").strip()
 
     def text_blob(a: Dict[str, Any]) -> str:
         raw = a.get("raw") or {}
@@ -277,6 +494,13 @@ def filter_assets(
             continue
         if review_status in {"not_reviewed", "unreviewed"} and verdict:
             continue
+        asset_status = ((a.get("user_state") or {}).get("status") or "unseen").lower()
+        if status and asset_status != status:
+            continue
+        if tag and tag not in (a.get("tags") or []):
+            continue
+        if cluster and (a.get("cluster") or "") != cluster:
+            continue
         out.append(a)
 
     if sort == "code":
@@ -296,23 +520,39 @@ def on_startup() -> None:
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
     articles = fetch_all_articles()
+    assets = fetch_all_assets()
     n = len(articles)
     keep = sum(1 for a in articles if (a.get("priority") or "").lower() == "keep")
     avg_rank = sum(score_value(a, "rank_score") for a in articles) / n if n else 0.0
     top_score = max([score_value(a, "rank_score") for a in articles], default=0.0)
     top_papers = sorted(articles, key=lambda a: score_value(a, "rank_score"), reverse=True)[:8]
     dimensions = collect_dimension_stats(articles)
+    accepted = 0
+    weak = 0
+    for asset in assets:
+        review = (asset.get("raw") or {}).get("llm_review")
+        verdict = (review or {}).get("verdict") if isinstance(review, dict) else ""
+        if verdict == "accept":
+            accepted += 1
+        elif verdict == "weak":
+            weak += 1
+    code_ready = sum(1 for asset in assets if (asset.get("code_status") or "") in {"repo_found", "open_source_verified"})
     return templates.TemplateResponse(
         "home.html",
         {
             "request": request,
             "n": n,
+            "asset_total": len(assets),
+            "asset_accepted": accepted,
+            "asset_weak": weak,
+            "asset_code_ready": code_ready,
             "keep": keep,
             "avg_rank": avg_rank,
             "top_score": top_score,
             "top_papers": top_papers,
             "dimensions": dimensions,
             "db_path": str(DB_PATH),
+            "url_depth": 0,
         },
     )
 
@@ -338,6 +578,7 @@ def articles_page(
             "priority": priority,
             "sort": sort,
             "limit": limit,
+            "url_depth": 0,
         },
     )
 
@@ -349,6 +590,9 @@ def assets_page(
     code_status: str = Query(""),
     pdf_status: str = Query(""),
     review_status: str = Query("reviewed"),
+    status: str = Query(""),
+    tag: str = Query(""),
+    cluster: str = Query(""),
     sort: str = Query("asset_score"),
     limit: int = Query(100, ge=1, le=1000),
 ) -> HTMLResponse:
@@ -360,6 +604,9 @@ def assets_page(
         code_status=code_status,
         pdf_status=pdf_status,
         review_status=review_status,
+        status=status,
+        tag=tag,
+        cluster=cluster,
         sort=sort,
     )[:limit]
     return templates.TemplateResponse(
@@ -374,10 +621,56 @@ def assets_page(
             "code_status": code_status,
             "pdf_status": pdf_status,
             "review_status": review_status,
+            "status": status,
+            "tag": tag,
+            "cluster": cluster,
+            "clusters": collect_asset_clusters(all_assets),
+            "tags": collect_asset_tags(all_assets),
             "sort": sort,
             "limit": limit,
+            "url_depth": 0,
         },
     )
+
+
+@app.get("/assets/today", response_class=HTMLResponse)
+def assets_today(request: Request, goal: int = Query(5, ge=1, le=50)) -> HTMLResponse:
+    all_assets = filter_assets(fetch_all_assets(), review_status="reviewed", sort="asset_score")
+    today = today_key()
+    done_today = [
+        asset
+        for asset in all_assets
+        if (asset.get("user_state") or {}).get("status") == "done"
+        and (asset.get("user_state") or {}).get("completed_on") == today
+    ]
+    queue = [
+        asset
+        for asset in all_assets
+        if ((asset.get("user_state") or {}).get("status") or "unseen") not in {"done", "skip"}
+    ][: max(goal - len(done_today), 1)]
+    return templates.TemplateResponse(
+        "assets_today.html",
+        {
+            "request": request,
+            "assets": queue[:1],
+            "queue": queue,
+            "done_today": len(done_today),
+            "goal": goal,
+            "clusters": collect_asset_clusters(all_assets),
+            "url_depth": 1,
+        },
+    )
+
+
+@app.post("/assets/{asset_id}/state")
+async def update_asset_state(request: Request, asset_id: str) -> RedirectResponse:
+    raw_body = (await request.body()).decode("utf-8", errors="replace")
+    form = {key: values[-1] for key, values in parse_qs(raw_body, keep_blank_values=True).items()}
+    status = str(form.get("status") or "reading")
+    tag = str(form.get("tag") or "")
+    next_url = relative_redirect_url(str(form.get("next") or ""), request.url.path, fallback=f"/assets/{asset_id}")
+    set_asset_state(asset_id, status=status, tag=tag)
+    return RedirectResponse(next_url, status_code=303)
 
 
 @app.get("/assets/{asset_id}", response_class=HTMLResponse)
@@ -385,14 +678,46 @@ def asset_detail(request: Request, asset_id: str) -> HTMLResponse:
     ensure_db()
     with connect() as conn:
         row = conn.execute("SELECT * FROM assets WHERE asset_id = ?", (asset_id,)).fetchone()
+        nav_rows = conn.execute(
+            """
+            SELECT asset_id, asset_score, source_title, source_venue, source_year, raw_json
+            FROM assets
+            ORDER BY asset_score DESC
+            LIMIT 40
+            """
+        ).fetchall()
     if row is None:
         return templates.TemplateResponse(
             "asset_detail.html",
-            {"request": request, "asset": None},
+            {"request": request, "asset": None, "asset_nav": [], "url_depth": 1},
             status_code=404,
         )
-    asset = row_to_dict(row)
-    return templates.TemplateResponse("asset_detail.html", {"request": request, "asset": asset})
+    asset = attach_asset_user_fields(row_to_dict(row))
+    asset_nav = [row_to_dict(r) for r in nav_rows]
+    if not any(item.get("asset_id") == asset_id for item in asset_nav):
+        asset_nav.insert(
+            0,
+            {
+                "asset_id": asset.get("asset_id"),
+                "asset_score": asset.get("asset_score"),
+                "source_title": asset.get("source_title"),
+                "source_venue": asset.get("source_venue"),
+                "source_year": asset.get("source_year"),
+                "raw": asset.get("raw") or {},
+            },
+        )
+    return templates.TemplateResponse(
+        "asset_detail.html",
+        {"request": request, "asset": asset, "asset_nav": asset_nav, "url_depth": 1},
+    )
+
+
+@app.get("/asset-files/{rel_path:path}")
+def asset_file(rel_path: str) -> Response:
+    path = safe_asset_file_path(rel_path)
+    if path is None:
+        return Response("Not found", status_code=404)
+    return FileResponse(path)
 
 
 @app.get("/articles/{article_id}", response_class=HTMLResponse)
@@ -403,11 +728,11 @@ def article_detail(request: Request, article_id: int) -> HTMLResponse:
     if row is None:
         return templates.TemplateResponse(
             "article_detail.html",
-            {"request": request, "article": None, "scores": []},
+            {"request": request, "article": None, "scores": [], "url_depth": 1},
             status_code=404,
         )
     article = row_to_dict(row)
     return templates.TemplateResponse(
         "article_detail.html",
-        {"request": request, "article": article, "scores": score_items(article)},
+        {"request": request, "article": article, "scores": score_items(article), "url_depth": 1},
     )

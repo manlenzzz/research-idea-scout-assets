@@ -7,9 +7,10 @@
     <h1>Method Asset Library</h1>
     <p>{{ shown }} shown · {{ reviewed_total }} LLM reviewed · {{ total }} total assets</p>
   </div>
+  <a class="primary" href="{{ rel_url('assets/today', url_depth|default(0)) }}">Today</a>
 </section>
 
-<form class="card toolbar asset-toolbar" method="get" action="/assets">
+<form class="card toolbar asset-toolbar" method="get" action="{{ rel_url('assets', url_depth|default(0)) }}">
   <input name="q" value="{{ q }}" placeholder="Search challenge, method, insight, transfer target..." />
   <select name="review_status">
     {% for label, value in [("LLM reviewed", "reviewed"), ("Accept", "accept"), ("Weak", "weak"), ("Reject", "reject"), ("Not reviewed", "not_reviewed"), ("All", "all")] %}
@@ -20,6 +21,24 @@
     <option value="" {% if not code_status %}selected{% endif %}>All code states</option>
     {% for v in ["open_source_verified", "repo_found", "missing", "unavailable", "failed"] %}
     <option value="{{ v }}" {% if code_status == v %}selected{% endif %}>{{ v }}</option>
+    {% endfor %}
+  </select>
+  <select name="status">
+    <option value="" {% if not status %}selected{% endif %}>All reading states</option>
+    {% for v in ["unseen", "reading", "done", "skip", "starred"] %}
+    <option value="{{ v }}" {% if status == v %}selected{% endif %}>{{ v }}</option>
+    {% endfor %}
+  </select>
+  <select name="cluster">
+    <option value="" {% if not cluster %}selected{% endif %}>All clusters</option>
+    {% for item in clusters %}
+    <option value="{{ item.label }}" {% if cluster == item.label %}selected{% endif %}>{{ item.label }} · {{ item.count }}</option>
+    {% endfor %}
+  </select>
+  <select name="tag">
+    <option value="" {% if not tag %}selected{% endif %}>All tags</option>
+    {% for item in tags %}
+    <option value="{{ item.tag }}" {% if tag == item.tag %}selected{% endif %}>{{ item.tag }} · {{ item.count }}</option>
     {% endfor %}
   </select>
   <select name="sort">
@@ -54,6 +73,11 @@
             <div class="asset-title-block">
               <div class="meta">{{ a.source_title or 'Untitled source paper' }}</div>
               <h2>{{ review.reusable_insight or insight.reusable_insight or a.challenge }}</h2>
+              <div class="asset-meta-row">
+                <span class="chip">{{ a.cluster }}</span>
+                <span class="chip">State {{ a.user_state.status }}</span>
+                {% for tag_item in a.tags[:4] %}<span class="chip">{{ tag_item }}</span>{% endfor %}
+              </div>
             </div>
             <div class="asset-score-panel asset-score-strip">
               <div class="score-metric primary-score" aria-label="Asset {{ '%.2f'|format(a.asset_score or 0) }}">
@@ -74,7 +98,7 @@
                 <span class="chip {{ a.code_status or 'missing' }}">Repo {{ a.code_status or 'missing' }}</span>
                 {% if review.code_assessment %}<span class="chip">Code evidence {{ review.code_assessment }}</span>{% endif %}
               </div>
-              <a class="detail-link" href="/assets/{{ a.asset_id }}">Open details</a>
+              <a class="detail-link" href="{{ rel_url('assets/' ~ a.asset_id, url_depth|default(0)) }}">Open details</a>
             </div>
           </div>
 

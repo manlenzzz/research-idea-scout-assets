@@ -97,10 +97,33 @@ def test_verify_code_preserves_repo_found_when_metadata_rate_limited(monkeypatch
         return {}, "http_403"
 
     monkeypatch.setattr("idea_scout.verify_code.github_api_json", fake_api)
+    monkeypatch.setattr("idea_scout.verify_code.github_public_repo_exists", lambda *_args, **_kwargs: False)
     checked = verify_one(asset, timeout=1, offline=False)
     assert checked["code"]["status"] == "repo_found"
     assert checked["code"]["failure_reason"] == "metadata_lookup:http_403"
     assert checked["scores"]["code_readiness"] >= 3.0
+
+
+def test_verify_code_marks_public_repo_when_api_is_rate_limited(monkeypatch, tmp_path: Path) -> None:
+    asset = base_asset(tmp_path, "Abstract\nCode exists.")
+    asset["code"] = {"status": "repo_found", "url": "https://github.com/StanfordVL/taskonomy"}
+
+    def fake_api(path: str, timeout: int):
+        return {}, "http_403"
+
+    def fake_public_page(owner: str, repo: str, timeout: int) -> bool:
+        assert (owner, repo) == ("StanfordVL", "taskonomy")
+        return True
+
+    monkeypatch.setattr("idea_scout.verify_code.github_api_json", fake_api)
+    monkeypatch.setattr("idea_scout.verify_code.github_public_repo_exists", fake_public_page)
+
+    checked = verify_one(asset, timeout=1, offline=False)
+
+    assert checked["code"]["status"] == "open_source_verified"
+    assert checked["code"]["runnable_status"] == "public_repo_metadata_limited"
+    assert checked["code"]["failure_reason"] == "metadata_lookup:http_403"
+    assert checked["scores"]["code_readiness"] >= 5.0
 
 
 def test_homepage_discovery_chooses_title_matching_github_link(tmp_path: Path) -> None:

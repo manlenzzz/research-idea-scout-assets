@@ -3,14 +3,14 @@
 
 {% block content %}
 {% if not article %}
-  <section class="card panel"><h1>Article not found</h1><a href="/articles">Back to article library</a></section>
+  <section class="card panel"><h1>Article not found</h1><a href="{{ rel_url('articles', url_depth|default(0)) }}">Back to article library</a></section>
 {% else %}
 <section class="page-head detail-head">
   <div>
     <h1>{{ article.title }}</h1>
     <p>{{ article.venue }} · {{ article.year }} · {{ article.profile_name or 'profile' }}</p>
   </div>
-  <a class="primary" href="/articles">Back to Library</a>
+  <a class="primary" href="{{ rel_url('articles', url_depth|default(0)) }}">Back to Library</a>
 </section>
 
 <section class="detail-grid">

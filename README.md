@@ -435,13 +435,14 @@ Example:
 
 ## 🌐 Web Portal
 
-IdeaScout includes a lightweight FastAPI web portal for browsing scored papers.
+IdeaScout includes a lightweight FastAPI web portal for browsing the canonical
+asset library and its source papers.
 
 The portal provides:
 
-- a dashboard with corpus-level statistics;
-- an article library with search, filtering, and sorting;
-- article detail pages with core ideas, transferable mechanisms, risks, and score cards.
+- an asset library with search, filtering, reading state, and daily queue;
+- asset detail pages with reader cards, figures, methods, transfer targets, and evidence;
+- source-paper pages for tracing the papers behind assets.
 
 ### Dashboard
 
@@ -465,18 +466,37 @@ The portal provides:
 
 ## 🖥️ Run the Web Portal
 
-First, import an IdeaScout JSONL output file into the portal database:
+The default portal database is the canonical asset-store database:
+
+```text
+/vePFS-Mindverse/user/intern/zhouch/asset_store/portal.db
+```
+
+Rebuild it from the canonical batches when the store changes:
 
 ```bash
-python web/import_jsonl.py \
-  --input data/idea_scores.jsonl \
-  --db web/ideascout_portal.db
+python scripts/build_portal_from_store.py \
+  --store /vePFS-Mindverse/user/intern/zhouch/asset_store
 ```
 
 Then start the web server:
 
 ```bash
 python -m uvicorn web.app.main:app \
+  --host 127.0.0.1 \
+  --port 8080
+```
+
+For a temporary local experiment, import a JSONL file into a separate database
+and override `IDEASCOUT_PORTAL_DB`:
+
+```bash
+python web/import_jsonl.py \
+  --input data/idea_scores.jsonl \
+  --db web/ideascout_portal.db
+
+IDEASCOUT_PORTAL_DB=web/ideascout_portal.db \
+  python -m uvicorn web.app.main:app \
   --host 127.0.0.1 \
   --port 8080
 ```
@@ -692,6 +712,14 @@ python scripts/export_assets.py \
   --input data/assets_llm_reviewed.jsonl \
   --output data/assets.csv
 
+python scripts/build_portal_from_store.py \
+  --store /vePFS-Mindverse/user/intern/zhouch/asset_store
+```
+
+For a temporary local experiment, import one JSONL file into a separate portal
+database:
+
+```bash
 python web/import_jsonl.py \
   --input data/assets_with_pdf.jsonl \
   --db web/ideascout_portal.db \

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -126,6 +128,106 @@ def test_portal_import_and_asset_routes(tmp_path: Path, monkeypatch) -> None:
     assert client.get(f"/assets/{asset['asset_id']}").status_code == 200
 
 
+def test_portal_defaults_to_asset_store_database(tmp_path: Path, monkeypatch) -> None:
+    store = tmp_path / "store"
+    store.mkdir()
+    monkeypatch.setenv("IDEASCOUT_ASSET_STORE", str(store))
+    monkeypatch.delenv("IDEASCOUT_PORTAL_DB", raising=False)
+
+    import importlib
+    import web.app.main as main
+
+    importlib.reload(main)
+    assert main.DB_PATH == store.resolve() / "portal.db"
+
+
+def test_build_portal_from_store_imports_canonical_batches(tmp_path: Path) -> None:
+    store = tmp_path / "store"
+    for batch, title, score in [
+        ("bestpaper", "Best Paper Asset", 8.0),
+        ("high_impact_ml", "High Impact ML Asset", 9.0),
+    ]:
+        asset = reviewed_asset()
+        asset["asset_id"] = f"{batch}-asset"
+        asset["profile_name"] = batch
+        asset["source_papers"][0]["title"] = title
+        asset["scores"]["asset_score"] = score
+        batch_dir = store / batch
+        batch_dir.mkdir(parents=True)
+        (batch_dir / "assets.jsonl").write_text(json.dumps(asset, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "build_portal_from_store.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--store",
+            str(store),
+            "--batches",
+            "bestpaper,high_impact_ml",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    with sqlite3.connect(store / "portal.db") as conn:
+        assert conn.execute("select count(*) from assets").fetchone()[0] == 2
+        assert conn.execute("select count(*) from articles").fetchone()[0] == 2
+        profiles = {
+            row[0]
+            for row in conn.execute("select profile_name from assets order by profile_name").fetchall()
+        }
+    assert profiles == {"bestpaper", "high_impact_ml"}
+
+
+def test_homepage_prioritizes_daily_asset_workflow(tmp_path: Path, monkeypatch) -> None:
+    asset = ingest_one(verify_one(extract_assets([sample_paper()])[0], offline=True), output_dir=tmp_path)
+    jsonl = tmp_path / "assets.jsonl"
+    jsonl.write_text(json.dumps(asset, ensure_ascii=False) + "\n")
+    db = tmp_path / "portal.db"
+    assert import_asset_rows(jsonl, db) == 1
+
+    monkeypatch.setenv("IDEASCOUT_PORTAL_DB", str(db))
+    import importlib
+    import web.app.main as main
+
+    importlib.reload(main)
+    client = TestClient(main.app)
+
+    html = client.get("/").text
+    assert 'href="assets/today">Today</a>' in html
+    assert 'href="assets">Asset Library</a>' in html
+    assert 'href="/articles">Article Library</a>' not in html
+    assert 'href="assets/today">Start Daily Queue</a>' in html
+    assert 'href="articles">Source Papers</a>' in html
+    assert "Open Article Library" not in html
+
+
+def test_homepage_reports_asset_library_scope(tmp_path: Path, monkeypatch) -> None:
+    asset = reviewed_asset()
+    jsonl = tmp_path / "assets.jsonl"
+    jsonl.write_text(json.dumps(asset, ensure_ascii=False) + "\n", encoding="utf-8")
+    db = tmp_path / "portal.db"
+    assert import_asset_rows(jsonl, db) == 1
+
+    monkeypatch.setenv("IDEASCOUT_PORTAL_DB", str(db))
+    import importlib
+    import web.app.main as main
+
+    importlib.reload(main)
+    client = TestClient(main.app)
+
+    html = client.get("/").text
+    assert "Assets" in html
+    assert "Accepted" in html
+    assert "Weak" in html
+    assert "Code Ready" in html
+    assert "1" in html
+
+
 def reviewed_asset() -> dict:
     asset = extract_assets([sample_paper()], profile_name="test_profile")[0]
     asset.update(
@@ -162,6 +264,30 @@ def reviewed_asset() -> dict:
                 "review_notes": "方法机制明确，代码可用。",
                 "confidence": 0.91,
             },
+            "reader_card": {
+                "short_title": "Token matching for dense tasks",
+                "intuition": "密集预测任务可以先看局部 patch 是否能在支持样本中找到对应关系，而不是先训练一个新头。",
+                "why_old_way_fails": "普通 few-shot 分类接口只输出类别，不能自然表达 dense label 的局部结构。",
+                "mechanism_steps": [
+                    "把输入图像和标签都拆成 patch tokens。",
+                    "在共享 token 空间中做非参数匹配。",
+                    "用支持样本中的局部对应关系生成目标任务输出。",
+                ],
+                "key_terms": [
+                    {"term": "token matching", "plain": "把局部块当成可检索单元来找对应关系。"}
+                ],
+                "transfer_rule": "当任务之间共享局部视觉对应关系，但标签空间不同，可以尝试这种接口。",
+                "misuse_warning": "如果目标没有局部对应结构，token matching 可能只是在做噪声匹配。",
+                "technical_summary": "用视觉 token 匹配，把图像和标签 patch token 放在同一匹配空间中做少样本适配。",
+            },
+            "figures": [
+                {
+                    "kind": "important",
+                    "path": str(Path("figures") / "vtm-asset" / "figure-1.png"),
+                    "caption": "Figure 1: Overview of dense task token matching.",
+                    "why_selected": "概览图直接展示输入 token、标签 token 和匹配流程。",
+                }
+            ],
             "source_papers": [
                 {
                     "title": "Universal Few-shot Learning of Dense Prediction Tasks",
@@ -189,7 +315,7 @@ def test_portal_asset_cards_use_reviewed_method_asset_format(tmp_path: Path, mon
     importlib.reload(main)
     client = TestClient(main.app)
     html = client.get("/assets").text
-    assert "/static/style.css?v=" in html
+    assert "static/style.css?v=" in html
     assert "Method Asset Library" in html
     assert "Challenge" in html
     assert "Method" in html
@@ -229,7 +355,7 @@ def test_portal_asset_cards_use_reviewed_method_asset_format(tmp_path: Path, mon
     assert "asset-section method-section method-emphasis" in html
     assert "asset-evidence-grid" in html
     assert "Open details" in html
-    assert f'href="/assets/{asset["asset_id"]}"' in html
+    assert f'href="assets/{asset["asset_id"]}"' in html
     assert "Asset 8.50" in html
     assert "Evidence 8.00" in html
     assert "Code 9.00" in html
@@ -251,5 +377,115 @@ def test_portal_asset_cards_use_reviewed_method_asset_format(tmp_path: Path, mon
 
     detail = client.get(f"/assets/{asset['asset_id']}").text
     assert "Challenge -> Method -> Reusable Insight" in detail
+    assert "asset-detail-shell" in detail
+    assert "asset-reader-main" in detail
+    assert "asset-side-panel" in detail
+    assert "asset-neighbor-list" in detail
+    assert "asset-switcher" not in detail
+    assert "asset-switcher-item active" not in detail
+    assert "Reader Card" in detail
+    assert "reader-lead-grid" in detail
+    assert "Token matching for dense tasks" in detail
+    assert "密集预测任务可以先看局部 patch" in detail
+    assert "Mechanism walkthrough" in detail
+    assert "token matching" in detail
+    assert "Paper figure" in detail
+    assert "../asset-files/figures/vtm-asset/figure-1.png" in detail
+    assert "data-figure-viewer-trigger" in detail
+    assert "figure-lightbox" in detail
+    assert "data-figure-zoom-in" in detail
+    assert "Open original" in detail
+    assert "概览图直接展示输入 token" in detail
+    assert "asset-evidence-drawer" in detail
+    assert "<summary>Evidence quotes</summary>" in detail
+    assert "<summary>Raw pipeline evidence</summary>" in detail
     assert "Evidence quotes" in detail
     assert "Raw pipeline evidence" in detail
+
+    assert ".asset-detail-shell" in css and "grid-template-columns: minmax(0, 1fr) 300px" in css
+    assert ".asset-side-panel" in css and "position: sticky" in css
+    assert ".asset-reader-main" in css and "max-width: 796px" in css
+    assert ".reader-lead-grid-single" in css and "grid-template-columns: 1fr" in css
+    assert ".asset-evidence-drawer details" in css
+
+
+def test_portal_serves_asset_files_from_store(tmp_path: Path, monkeypatch) -> None:
+    store = tmp_path / "store"
+    figure = store / "figures" / "vtm-asset" / "figure-1.png"
+    figure.parent.mkdir(parents=True)
+    figure.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    monkeypatch.setenv("IDEASCOUT_ASSET_STORE", str(store))
+    import importlib
+    import web.app.main as main
+
+    importlib.reload(main)
+    client = TestClient(main.app)
+    resp = client.get("/asset-files/figures/vtm-asset/figure-1.png")
+    assert resp.status_code == 200
+    assert resp.content == b"\x89PNG\r\n\x1a\n"
+
+    blocked = client.get("/asset-files/../secret.txt")
+    assert blocked.status_code in {404, 405}
+
+
+def test_portal_links_are_safe_under_webide_path_prefix(tmp_path: Path, monkeypatch) -> None:
+    asset = reviewed_asset()
+    jsonl = tmp_path / "assets.jsonl"
+    jsonl.write_text(json.dumps(asset, ensure_ascii=False) + "\n", encoding="utf-8")
+    db = tmp_path / "portal.db"
+    assert import_asset_rows(jsonl, db) == 1
+
+    monkeypatch.setenv("IDEASCOUT_PORTAL_DB", str(db))
+    import importlib
+    import web.app.main as main
+
+    importlib.reload(main)
+    client = TestClient(main.app)
+
+    today = client.get("/assets/today").text
+    assert 'href="../assets">Full Library</a>' in today
+    assert f'href="../assets/{asset["asset_id"]}">Read full asset</a>' in today
+    assert f'action="../assets/{asset["asset_id"]}/state"' in today
+    assert 'href="/assets/today"' not in today
+
+    detail = client.get(f"/assets/{asset['asset_id']}").text
+    assert 'href="../assets">Back to Assets</a>' in detail
+    assert 'href="../assets">View all</a>' in detail
+    assert 'href="../static/style.css?v=' in detail
+    assert "../asset-files/figures/vtm-asset/figure-1.png" in detail
+
+
+def test_asset_state_redirect_keeps_webide_path_prefix(tmp_path: Path, monkeypatch) -> None:
+    asset = reviewed_asset()
+    jsonl = tmp_path / "assets.jsonl"
+    jsonl.write_text(json.dumps(asset, ensure_ascii=False) + "\n", encoding="utf-8")
+    db = tmp_path / "portal.db"
+    assert import_asset_rows(jsonl, db) == 1
+
+    monkeypatch.setenv("IDEASCOUT_PORTAL_DB", str(db))
+    import importlib
+    import web.app.main as main
+
+    importlib.reload(main)
+    client = TestClient(main.app)
+
+    response = client.post(
+        f"/assets/{asset['asset_id']}/state",
+        data={"status": "done", "tag": "read", "next": "/assets/today"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "../today"
+    assert not response.headers["location"].startswith("/")
+
+    with sqlite3.connect(db) as conn:
+        state = conn.execute(
+            "select status, completed_on from asset_user_state where asset_id = ?",
+            (asset["asset_id"],),
+        ).fetchone()
+        tags = conn.execute("select tag from asset_tags where asset_id = ?", (asset["asset_id"],)).fetchall()
+    assert state[0] == "done"
+    assert state[1]
+    assert [row[0] for row in tags] == ["read"]

@@ -1,0 +1,56 @@
+# Authoritative asset store location.
+#
+# Asset data (reviewed challenge -> method -> reusable-insight cards) lives
+# OUTSIDE the git repo, on durable GPFS storage. The repo only tracks code,
+# schemas, and a few small examples; bulk data is versioned via snapshots in
+# the store itself.
+#
+# Scripts and the web portal read the store path from this file (or the
+# IDEASCOUT_ASSET_STORE env var, which takes precedence).
+
+asset_store_root: /vePFS-Mindverse/user/intern/zhouch/asset_store
+
+batches:
+  # Canonical asset library batches. The current library is the union of
+  # these reviewed assets, rebuilt into portal_db by build_portal_from_store.py.
+  bestpaper:
+    assets: bestpaper/assets.jsonl          # reviewed asset JSONL
+    reviews: bestpaper/reviews              # per-asset LLM review cache (replayable)
+    snapshots: bestpaper/snapshots          # timestamped frozen copies
+    manifest: bestpaper/MANIFEST.json       # batch provenance
+  high_impact_ml:
+    assets: high_impact_ml/assets.jsonl
+    reviews: high_impact_ml/reviews
+    snapshots: high_impact_ml/snapshots
+    manifest: high_impact_ml/MANIFEST.json
+  high_impact_cvf:
+    assets: high_impact_cvf/assets.jsonl
+    reviews: high_impact_cvf/reviews
+    snapshots: high_impact_cvf/snapshots
+    manifest: high_impact_cvf/MANIFEST.json
+  high_impact_acl:
+    assets: high_impact_acl/assets.jsonl
+    reviews: high_impact_acl/reviews
+    snapshots: high_impact_acl/snapshots
+    manifest: high_impact_acl/MANIFEST.json
+  high_impact_expansion_20260624:
+    assets: high_impact_expansion_20260624/assets.jsonl
+    reviews: high_impact_expansion_20260624/reviews
+    snapshots: high_impact_expansion_20260624/snapshots
+    manifest: high_impact_expansion_20260624/MANIFEST.json
+  high_impact_codefirst_expansion_20260624:
+    assets: high_impact_codefirst_expansion_20260624/assets.jsonl
+    reviews: high_impact_codefirst_expansion_20260624/reviews
+    snapshots: high_impact_codefirst_expansion_20260624/snapshots
+    manifest: high_impact_codefirst_expansion_20260624/MANIFEST.json
+
+# Portal database is rebuilt from the store; it is a derived artifact.
+portal_db: portal.db
+
+canonical_batches:
+  - bestpaper
+  - high_impact_ml
+  - high_impact_cvf
+  - high_impact_acl
+  - high_impact_expansion_20260624
+  - high_impact_codefirst_expansion_20260624

@@ -3,22 +3,26 @@
 
 {% block content %}
 {% if not asset %}
-  <section class="card panel"><h1>Asset not found</h1><a href="/assets">Back to method assets</a></section>
+  <section class="card panel"><h1>Asset not found</h1><a href="{{ rel_url('assets', url_depth|default(0)) }}">Back to method assets</a></section>
 {% else %}
 {% set raw = asset.raw or {} %}
 {% set review = raw.llm_review if raw.llm_review else {} %}
 {% set insight = raw.insight if raw.insight else {} %}
+{% set reader = raw.reader_card if raw.reader_card else {} %}
+{% set figures = raw.figures if raw.figures else [] %}
 {% set transfer_targets = review.transfer_targets or raw.transferable_to or [] %}
 {% set boundaries = review.non_transferable_parts or raw.non_transferable_parts or [] %}
-<section class="page-head detail-head">
+<section class="page-head detail-head asset-detail-hero">
   <div>
-    <p class="eyebrow">Challenge -> Method -> Reusable Insight</p>
+    <p class="eyebrow"><span class="detail-flow-label">Challenge -> Method -> Reusable Insight</span><span class="detail-cluster-label">{{ asset.cluster }}</span></p>
     <h1>{{ review.reusable_insight or insight.reusable_insight or asset.source_title or asset.challenge }}</h1>
     <p>{{ asset.source_venue }} {{ asset.source_year }} · {{ asset.source_title or 'Untitled source paper' }}</p>
   </div>
-  <a class="primary" href="/assets">Back to Assets</a>
+  <a class="primary" href="{{ rel_url('assets', url_depth|default(0)) }}">Back to Assets</a>
 </section>
 
+<section class="asset-detail-shell">
+  <article class="asset-reader-main">
 <section class="card panel method-asset-detail">
   <div class="chips">
     <span class="chip">Asset {{ '%.2f'|format(asset.asset_score or 0) }}</span>
@@ -30,6 +34,124 @@
     <span class="chip {{ asset.pdf_status or 'missing' }}">PDF {{ asset.pdf_status or 'missing' }}</span>
     {% if review.code_assessment %}<span class="chip">Code evidence {{ review.code_assessment }}</span>{% endif %}
   </div>
+
+  {% if reader %}
+  <section class="reader-card">
+    <div class="reader-card-head">
+      <div>
+        <p class="eyebrow">Reader Card</p>
+        <h2>{{ reader.short_title or review.reusable_insight or asset.source_title }}</h2>
+      </div>
+    </div>
+
+    <div class="reader-lead-grid {% if not figures %}reader-lead-grid-single{% endif %}">
+      <div class="reader-note reader-primary">
+        <span class="asset-section-label">Intuition</span>
+        <p>{{ reader.intuition }}</p>
+      </div>
+
+      {% if figures %}
+      <div class="reader-figure">
+        {% for fig in figures[:1] %}
+          {% if fig.path %}
+          {% set figure_url = asset_file_url(fig.path, url_depth|default(0)) %}
+          <button
+            class="reader-figure-preview"
+            type="button"
+            data-figure-viewer-trigger
+            data-figure-src="{{ figure_url }}"
+            data-figure-caption="{{ fig.caption or 'Selected figure from source paper' }}"
+            aria-label="Open paper figure viewer"
+          >
+            <img src="{{ figure_url }}" alt="{{ fig.caption or 'Important paper figure' }}" />
+            <span class="reader-figure-zoom-label">Zoom</span>
+          </button>
+          {% endif %}
+          <div class="reader-figure-body">
+            <span class="asset-section-label">Paper figure</span>
+            <h3>{{ fig.caption or 'Selected figure from source paper' }}</h3>
+            {% if fig.path %}
+            <button
+              class="figure-inline-action"
+              type="button"
+              data-figure-viewer-trigger
+              data-figure-src="{{ asset_file_url(fig.path, url_depth|default(0)) }}"
+              data-figure-caption="{{ fig.caption or 'Selected figure from source paper' }}"
+            >Open large</button>
+            {% endif %}
+            {% if fig.why_selected %}<p>{{ fig.why_selected }}</p>{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="reader-note">
+      <span class="asset-section-label">Problem pressure</span>
+      <p>{{ reader.why_old_way_fails }}</p>
+    </div>
+
+    {% if reader.mechanism_steps %}
+    <div class="reader-note">
+      <span class="asset-section-label">Mechanism walkthrough</span>
+      <ol class="reader-steps">
+        {% for step in reader.mechanism_steps %}
+        <li>{{ step }}</li>
+        {% endfor %}
+      </ol>
+    </div>
+    {% endif %}
+
+    {% if reader.key_terms %}
+    <div class="reader-note">
+      <span class="asset-section-label">Terms</span>
+      <div class="reader-term-grid">
+        {% for term in reader.key_terms %}
+        <div class="reader-term">
+          <strong>{{ term.term }}</strong>
+          <span>{{ term.plain }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="reader-two-col">
+      <div class="reader-note">
+        <span class="asset-section-label">Transfer rule</span>
+        <p>{{ reader.transfer_rule }}</p>
+      </div>
+      <div class="reader-note">
+        <span class="asset-section-label">Misuse warning</span>
+        <p>{{ reader.misuse_warning }}</p>
+      </div>
+    </div>
+
+    <div class="reader-note reader-technical">
+      <span class="asset-section-label">Technical summary</span>
+      <p>{{ reader.technical_summary }}</p>
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="asset-workflow-card">
+    <div>
+      <span class="asset-section-label">Reading state</span>
+      <p>{{ asset.user_state.status }}</p>
+      {% if asset.tags %}
+      <div class="asset-meta-row">
+        {% for tag_item in asset.tags %}<span class="chip">{{ tag_item }}</span>{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    <form class="asset-action-form" method="post" action="{{ rel_url('assets/' ~ asset.asset_id ~ '/state', url_depth|default(0)) }}">
+      <input type="hidden" name="next" value="{{ rel_url('assets/today', url_depth|default(0)) }}" />
+      <input name="tag" placeholder="Tag after reading..." />
+      <button type="submit" name="status" value="done">Done + Tag</button>
+      <button type="submit" name="status" value="skip">Skip</button>
+      <button type="submit" name="status" value="starred">Star</button>
+    </form>
+  </section>
 
   <div class="asset-grid asset-grid-detail">
     <div class="asset-field">
@@ -49,74 +171,165 @@
       <p>{{ review.why_it_works or asset.why_it_is_hard or 'N/A' }}</p>
     </div>
   </div>
+  <section class="asset-evidence-drawer">
+    <details>
+      <summary>Evidence quotes</summary>
+      {% if review.evidence_quotes %}
+        {% for item in review.evidence_quotes %}
+        <div class="callout"><p>{{ item }}</p></div>
+        {% endfor %}
+      {% else %}
+        <p class="empty">No LLM evidence quotes recorded.</p>
+      {% endif %}
+    </details>
+
+    <details>
+      <summary>Raw pipeline evidence</summary>
+      {% if raw.evidence %}
+        {% for item in raw.evidence[:6] %}
+        <div class="callout"><p>{{ item }}</p></div>
+        {% endfor %}
+      {% else %}
+        <p class="empty">No raw evidence recorded.</p>
+      {% endif %}
+    </details>
+  </section>
+</section>
+  </article>
+
+  <aside class="asset-side-panel" aria-label="Asset context">
+    <section class="card panel">
+      <span class="asset-section-label">Transfer targets</span>
+      {% if transfer_targets %}
+      <ul class="compact-list">
+        {% for item in transfer_targets %}
+        <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="empty">No transfer targets recorded.</p>
+      {% endif %}
+
+      <span class="asset-section-label section-break">Boundary</span>
+      {% if boundaries %}
+      <ul class="compact-list">
+        {% for item in boundaries %}
+        <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="empty">No transfer boundary recorded.</p>
+      {% endif %}
+    </section>
+
+    <section class="card panel">
+      <span class="asset-section-label">Code evidence</span>
+      <dl class="info side-info">
+        <dt>Status</dt><dd><span class="chip {{ asset.code_status or 'missing' }}">{{ asset.code_status or 'missing' }}</span></dd>
+        <dt>Assessment</dt><dd>{{ review.code_assessment or 'unknown' }}</dd>
+        <dt>URL</dt><dd>{% if asset.code_url %}<a href="{{ asset.code_url }}" target="_blank">{{ asset.code_url }}</a>{% else %}N/A{% endif %}</dd>
+        <dt>Discovery</dt><dd>{{ raw.code.discovery_source or 'N/A' }}{% if raw.code.discovery_confidence %} · {{ raw.code.discovery_confidence }}{% endif %}</dd>
+      </dl>
+    </section>
+
+    <section class="card panel asset-neighbor-list">
+      <div class="asset-side-head">
+        <span class="asset-section-label">Nearby assets</span>
+        <a href="{{ rel_url('assets', url_depth|default(0)) }}">View all</a>
+      </div>
+      {% for item in asset_nav[:8] %}
+      {% set item_raw = item.raw if item.raw else {} %}
+      {% set item_review = item_raw.llm_review if item_raw.llm_review else {} %}
+      <a class="asset-neighbor-item {% if item.asset_id == asset.asset_id %}active{% endif %}" href="{{ rel_url('assets/' ~ item.asset_id, url_depth|default(0)) }}">
+        <strong>{{ item_review.reusable_insight or item.source_title or item.asset_id }}</strong>
+        <span>{{ item.source_venue }} {{ item.source_year }} · {{ '%.2f'|format(item.asset_score or 0) }}</span>
+      </a>
+      {% endfor %}
+    </section>
+  </aside>
 </section>
 
-<section class="detail-grid">
-  <div class="card panel">
-    <h2>Transfer Targets</h2>
-    {% if transfer_targets %}
-    <ul>
-      {% for item in transfer_targets %}
-      <li>{{ item }}</li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <p class="empty">No transfer targets recorded.</p>
-    {% endif %}
-
-    <h2 class="section-break">Boundary</h2>
-    {% if boundaries %}
-    <ul>
-      {% for item in boundaries %}
-      <li>{{ item }}</li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <p class="empty">No transfer boundary recorded.</p>
-    {% endif %}
+<div class="figure-lightbox" data-figure-lightbox hidden>
+  <div class="figure-lightbox-bar">
+    <p data-figure-caption></p>
+    <div class="figure-lightbox-actions">
+      <button type="button" data-figure-zoom-out aria-label="Zoom out">-</button>
+      <button type="button" data-figure-fit aria-label="Fit image">Fit</button>
+      <button type="button" data-figure-zoom-in aria-label="Zoom in">+</button>
+      <a data-figure-original href="#" target="_blank" rel="noopener">Open original</a>
+      <button type="button" data-figure-close aria-label="Close viewer">Close</button>
+    </div>
   </div>
-
-  <div class="card panel">
-    <h2>Code Evidence</h2>
-    <dl class="info">
-      <dt>Status</dt><dd><span class="chip {{ asset.code_status or 'missing' }}">{{ asset.code_status or 'missing' }}</span></dd>
-      <dt>Assessment</dt><dd>{{ review.code_assessment or 'unknown' }}</dd>
-      <dt>URL</dt><dd>{% if asset.code_url %}<a href="{{ asset.code_url }}" target="_blank">{{ asset.code_url }}</a>{% else %}N/A{% endif %}</dd>
-      <dt>Discovery</dt><dd>{{ raw.code.discovery_source or 'N/A' }}{% if raw.code.discovery_confidence %} · {{ raw.code.discovery_confidence }}{% endif %}</dd>
-      <dt>Review notes</dt><dd>{{ review.review_notes or 'N/A' }}</dd>
-    </dl>
-
-    <h2 class="section-break">Source</h2>
-    <dl class="info">
-      <dt>Paper</dt><dd>{{ asset.source_title or 'N/A' }}</dd>
-      <dt>Venue</dt><dd>{{ asset.source_venue }} {{ asset.source_year }}</dd>
-      <dt>PDF</dt><dd>{% if asset.pdf_url %}<a href="{{ asset.pdf_url }}" target="_blank">{{ asset.pdf_url }}</a>{% else %}N/A{% endif %}</dd>
-    </dl>
+  <div class="figure-lightbox-stage" data-figure-stage>
+    <img src="" alt="" data-figure-image />
   </div>
-</section>
-
-<section class="detail-grid">
-  <div class="card panel">
-    <h2>Evidence quotes</h2>
-    {% if review.evidence_quotes %}
-      {% for item in review.evidence_quotes %}
-      <div class="callout"><p>{{ item }}</p></div>
-      {% endfor %}
-    {% else %}
-      <p class="empty">No LLM evidence quotes recorded.</p>
-    {% endif %}
-  </div>
-
-  <div class="card panel">
-    <h2>Raw pipeline evidence</h2>
-    {% if raw.evidence %}
-      {% for item in raw.evidence[:6] %}
-      <div class="callout"><p>{{ item }}</p></div>
-      {% endfor %}
-    {% else %}
-      <p class="empty">No raw evidence recorded.</p>
-    {% endif %}
-  </div>
-</section>
+</div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const box = document.querySelector("[data-figure-lightbox]");
+  if (!box) return;
+  const image = box.querySelector("[data-figure-image]");
+  const caption = box.querySelector("[data-figure-caption]");
+  const original = box.querySelector("[data-figure-original]");
+  const stage = box.querySelector("[data-figure-stage]");
+  let scale = 1;
+  let fitMode = true;
+
+  const applyScale = () => {
+    image.style.transform = fitMode ? "" : `scale(${scale})`;
+    image.classList.toggle("is-zoomed", !fitMode);
+  };
+
+  const open = (trigger) => {
+    const src = trigger.getAttribute("data-figure-src");
+    const text = trigger.getAttribute("data-figure-caption") || "Paper figure";
+    if (!src) return;
+    image.src = src;
+    image.alt = text;
+    caption.textContent = text;
+    original.href = src;
+    scale = 1;
+    fitMode = true;
+    applyScale();
+    box.hidden = false;
+    document.body.classList.add("figure-viewer-open");
+  };
+
+  const close = () => {
+    box.hidden = true;
+    image.src = "";
+    document.body.classList.remove("figure-viewer-open");
+  };
+
+  document.querySelectorAll("[data-figure-viewer-trigger]").forEach((trigger) => {
+    trigger.addEventListener("click", () => open(trigger));
+  });
+  box.querySelector("[data-figure-close]").addEventListener("click", close);
+  box.querySelector("[data-figure-fit]").addEventListener("click", () => {
+    fitMode = true;
+    scale = 1;
+    applyScale();
+  });
+  box.querySelector("[data-figure-zoom-in]").addEventListener("click", () => {
+    fitMode = false;
+    scale = Math.min(scale + 0.25, 4);
+    applyScale();
+  });
+  box.querySelector("[data-figure-zoom-out]").addEventListener("click", () => {
+    fitMode = false;
+    scale = Math.max(scale - 0.25, 0.5);
+    applyScale();
+  });
+  stage.addEventListener("click", (event) => {
+    if (event.target === stage) close();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !box.hidden) close();
+  });
+})();
+</script>
 {% endblock %}

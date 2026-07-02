@@ -35,6 +35,10 @@ PRIMARY_VENUES = {
     "ACL",
     "EMNLP",
     "NAACL",
+    "JMLR",
+    "AISTATS",
+    "UAI",
+    "CORL",
 }
 
 EXCEPTIONAL_VENUES = {
@@ -50,10 +54,17 @@ OPENALEX_PRIMARY_SOURCES = {
     "NEURIPS": "S4306420609",
     "ICML": "S4306419644",
     "ICLR": "S4306419637",
+    "JMLR": "S118988714",
+    "AISTATS": "S4306419146",
+    "UAI": "S4306421103",
+    "CORL": "S4306506823",
 }
 
 OPENALEX_EXCEPTIONAL_SOURCES = {
     "AAAI": "S4210191458",
+    "IJCAI": "S4306419999",
+    "WEB": "S4306421067",
+    "SIGIR": "S4306418959",
 }
 
 CVF_VENUES = ("CVPR", "ICCV")
@@ -66,6 +77,7 @@ ACL_ACCEPTED_CODE_ASSESSMENTS = {"official", "community"}
 
 SOURCE_GROUPS = {
     "ML": {"NEURIPS", "ICML", "ICLR"},
+    "ML-EXTRA": {"JMLR", "AISTATS", "UAI", "CORL"},
     "CVF": {"CVPR", "ICCV"},
     "ACL": {"ACL", "EMNLP", "NAACL"},
     "NLP": {"ACL", "EMNLP", "NAACL"},
@@ -333,6 +345,145 @@ def fetch_openalex_source_records(
     return records
 
 
+def match_tokens(value: str) -> set[str]:
+    return {token for token in re.findall(r"[a-z0-9]+", clean_text(value).lower()) if len(token) >= 3}
+
+
+def title_match_score(want: str, got: str) -> float:
+    want_tokens = match_tokens(want)
+    got_tokens = match_tokens(got)
+    if not want_tokens or not got_tokens:
+        return 0.0
+    overlap = len(want_tokens & got_tokens)
+    coverage = overlap / len(want_tokens)
+    precision = overlap / len(got_tokens)
+    return round(0.75 * coverage + 0.25 * precision, 4)
+
+
+def work_source_display_name(work: Dict[str, Any]) -> str:
+    primary = work.get("primary_location") if isinstance(work.get("primary_location"), dict) else {}
+    source = primary.get("source") if isinstance(primary.get("source"), dict) else {}
+    return clean_text(source.get("display_name"))
+
+
+def seed_to_record(seed: Dict[str, Any], work: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    seed = dict(seed)
+    venue = norm_venue(seed.get("venue") or (work_source_display_name(work or {}) if work else "") or "CODE-SEED")
+    if work:
+        record = openalex_work_to_record(work, venue=venue, tier="code_seed_high_impact")
+        record["source"] = "seed_openalex"
+    else:
+        record = {
+            "paper_id": clean_text(seed.get("paper_id") or seed.get("id") or seed.get("doi") or seed.get("title")),
+            "title": clean_text(seed.get("title"), 500),
+            "abstract": clean_text(seed.get("abstract"), 4000),
+            "venue": venue,
+            "year": int(seed.get("year") or seed.get("publication_year") or 0),
+            "authors": clean_text(seed.get("authors")),
+            "url": clean_text(seed.get("url") or seed.get("paper_url") or seed.get("doi")),
+            "pdf_url": clean_text(seed.get("pdf_url") or seed.get("pdf")),
+            "doi": clean_text(seed.get("doi")),
+            "citation_count": int(seed.get("citation_count") or seed.get("cited_by_count") or 0),
+            "source": "seed",
+            "impact_tier": "code_seed_high_impact",
+            "profile_name": "high_impact_2016_2025",
+        }
+
+    for key in ["title", "abstract", "venue", "year", "authors", "url", "pdf_url", "doi", "citation_count"]:
+        value = seed.get(key)
+        if clean_text(value):
+            record[key] = value
+    for key in ["code_url", "github_url", "repo_url"]:
+        value = clean_text(seed.get(key))
+        if value:
+            record["code_url"] = value
+            break
+    record["profile_name"] = "high_impact_2016_2025"
+    citations = int(record.get("citation_count") or 0)
+    record.setdefault("rank_score", min(10.0, max(0.0, citations / 250.0)))
+    record.setdefault("score_overall_fit", min(10.0, 6.5 + citations / 1200.0))
+    record.setdefault("score_theory_novelty", min(10.0, 5.5 + citations / 1500.0))
+    return record
+
+
+def passes_code_seed_policy(record: Dict[str, Any], min_citations: int) -> bool:
+    code_url = clean_text(record.get("code_url") or record.get("github_url") or record.get("repo_url"))
+    citations = int(record.get("citation_count") or record.get("cited_by_count") or 0)
+    return (
+        code_url.startswith("https://github.com/")
+        and citations >= min_citations
+        and bool(clean_text(record.get("title")))
+        and bool(clean_text(record.get("pdf_url")))
+    )
+
+
+def fetch_openalex_title_work(title: str, timeout: int) -> Dict[str, Any] | None:
+    if not clean_text(title):
+        return None
+    params = {
+        "search": title,
+        "per-page": "5",
+        "select": OPENALEX_SELECT,
+    }
+    url = "https://api.openalex.org/works?" + urllib.parse.urlencode(params)
+    data = request_json(url, timeout=timeout)
+    rows = data.get("results") if isinstance(data.get("results"), list) else []
+    scored = []
+    for work in rows:
+        if not isinstance(work, dict):
+            continue
+        score = title_match_score(title, clean_text(work.get("title")))
+        if score >= 0.70:
+            scored.append((score, int(work.get("cited_by_count") or 0), work))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return scored[0][2]
+
+
+def fetch_seed_records(seed_file: str, timeout: int, min_citations: int, log_path: Path) -> List[Dict[str, Any]]:
+    records: List[Dict[str, Any]] = []
+    if not seed_file:
+        return records
+    for index, seed in enumerate(read_jsonl(seed_file), 1):
+        title = clean_text(seed.get("title"), 500)
+        try:
+            work = fetch_openalex_title_work(title, timeout=timeout)
+        except Exception as e:
+            append_jsonl(
+                log_path,
+                {"event": "seed_record_openalex_failed", "index": index, "title": title, "error": str(e), "at": utc_now()},
+            )
+            work = None
+
+        record = seed_to_record(seed, work=work)
+        if passes_code_seed_policy(record, min_citations=min_citations):
+            records.append(record)
+            append_jsonl(
+                log_path,
+                {
+                    "event": "seed_record_done",
+                    "index": index,
+                    "title": record.get("title"),
+                    "citations": record.get("citation_count"),
+                    "at": utc_now(),
+                },
+            )
+        else:
+            append_jsonl(
+                log_path,
+                {
+                    "event": "seed_record_skipped",
+                    "index": index,
+                    "title": title,
+                    "reason": "seed_policy",
+                    "citations": record.get("citation_count"),
+                    "at": utc_now(),
+                },
+            )
+    return records
+
+
 def slugify(value: str, max_chars: int = 96) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug[:max_chars].strip("-") or hashlib.sha1(value.encode("utf-8")).hexdigest()[:12]
@@ -527,6 +678,10 @@ def existing_title_keys(paths: Iterable[Path]) -> set[str]:
     return keys
 
 
+def existing_store_asset_paths(store: Path) -> List[Path]:
+    return sorted(path for path in store.glob("*/assets.jsonl") if path.is_file())
+
+
 def dedupe_records(records: Iterable[Dict[str, Any]], skip_titles: set[str]) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     seen: set[str] = set()
@@ -549,11 +704,15 @@ def safe_filename(record: Dict[str, Any]) -> str:
 def download_pdf(url: str, pdf_path: Path, timeout: int, max_bytes: int = 80_000_000) -> str:
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
     req = urllib.request.Request(url, headers={"User-Agent": DEFAULT_USER_AGENT})
+    started = time.monotonic()
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             total = 0
             with pdf_path.open("wb") as f:
                 while True:
+                    if time.monotonic() - started > timeout:
+                        pdf_path.unlink(missing_ok=True)
+                        return "download_timeout"
                     chunk = resp.read(1024 * 256)
                     if not chunk:
                         break
@@ -682,7 +841,12 @@ def write_manifest(batch_dir: Path, args: argparse.Namespace, stats: Dict[str, i
 
 
 def collect_candidates(args: argparse.Namespace, batch_dir: Path, log_path: Path) -> List[Dict[str, Any]]:
-    records: List[Dict[str, Any]] = []
+    records: List[Dict[str, Any]] = fetch_seed_records(
+        args.seed_file,
+        timeout=args.timeout,
+        min_citations=args.seed_min_citations,
+        log_path=log_path,
+    )
     wanted = selected_sources(args.sources)
     openalex_sources = dict(OPENALEX_PRIMARY_SOURCES)
     if args.include_exceptional:
@@ -925,6 +1089,8 @@ def main() -> None:
     parser.add_argument("--delete-pdfs", action="store_true", default=True)
     parser.add_argument("--keep-pdfs", action="store_false", dest="delete_pdfs")
     parser.add_argument("--min-llm-quality", type=int, default=3)
+    parser.add_argument("--seed-file", default="", help="Optional JSONL of high-impact papers with known GitHub repos.")
+    parser.add_argument("--seed-min-citations", type=int, default=250)
     parser.add_argument("--rebuild-portal", action="store_true")
     args = parser.parse_args()
 
@@ -934,7 +1100,7 @@ def main() -> None:
     batch_dir.mkdir(parents=True, exist_ok=True)
     log_path = batch_dir / "run_events.jsonl"
 
-    skip_titles = existing_title_keys([store / "bestpaper" / "assets.jsonl", batch_dir / "assets.jsonl"])
+    skip_titles = existing_title_keys(existing_store_asset_paths(store))
     append_jsonl(log_path, {"event": "run_started", "args": vars(args), "skip_titles": len(skip_titles), "at": utc_now()})
     candidates = collect_candidates(args, batch_dir=batch_dir, log_path=log_path)
     records = dedupe_records(candidates, skip_titles=skip_titles)

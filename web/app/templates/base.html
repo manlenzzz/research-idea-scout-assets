@@ -4,16 +4,20 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{% block title %}IdeaScout Portal{% endblock %}</title>
-  <link rel="stylesheet" href="{{ static_asset('style.css') }}" />
+  <link rel="stylesheet" href="{{ static_asset('style.css', url_depth|default(0)) }}" />
 </head>
 <body>
   <nav class="topbar">
-    <a class="brand" href="/">🧭 IdeaScout Portal</a>
+    <a class="brand" href="{{ rel_url('', url_depth|default(0)) }}">
+      <span class="brand-mark">🧭</span>
+      <span class="brand-name">IdeaScout</span>
+      <span class="brand-suffix">Portal</span>
+    </a>
     <div class="navlinks">
-      <a href="/">Home</a>
-      <a href="/articles">Article Library</a>
-      <a href="/assets">Asset Library</a>
-      <a href="https://github.com/YOUR_USERNAME/idea-scout" target="_blank">GitHub</a>
+      <a href="{{ rel_url('', url_depth|default(0)) }}">Home</a>
+      <a href="{{ rel_url('assets/today', url_depth|default(0)) }}">Today</a>
+      <a href="{{ rel_url('assets', url_depth|default(0)) }}">Asset Library</a>
+      <a class="nav-github" href="https://github.com/YOUR_USERNAME/idea-scout" target="_blank">GitHub</a>
     </div>
   </nav>
 
@@ -24,5 +28,6 @@
   <footer class="footer">
     IdeaScout · Profile-Guided Cross-Domain Research Idea Discovery
   </footer>
+  {% block scripts %}{% endblock %}
 </body>
 </html>

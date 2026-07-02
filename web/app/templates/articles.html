@@ -7,7 +7,7 @@
   <p>{{ shown }} shown · {{ total }} total</p>
 </section>
 
-<form class="card toolbar" method="get" action="/articles">
+<form class="card toolbar" method="get" action="{{ rel_url('articles', url_depth|default(0)) }}">
   <input name="q" value="{{ q }}" placeholder="Search title, idea, mechanism, venue..." />
   <select name="priority">
     <option value="" {% if not priority %}selected{% endif %}>All priorities</option>
@@ -32,7 +32,7 @@
 <section class="card article-list">
   {% if articles %}
     {% for p in articles %}
-      <a class="article-row" href="/articles/{{ p.id }}">
+      <a class="article-row" href="{{ rel_url('articles/' ~ p.id, url_depth|default(0)) }}">
         <div class="article-main">
           <h2>{{ loop.index }}. {{ p.title }}</h2>
           <div class="meta">{{ p.venue }} · {{ p.year }} · {{ p.profile_name or 'profile' }}</div>

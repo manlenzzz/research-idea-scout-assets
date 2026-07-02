@@ -57,6 +57,20 @@ def github_api_json(path: str, timeout: int) -> Tuple[Dict[str, Any], str]:
         return {}, str(e)
 
 
+def github_public_repo_exists(owner: str, repo: str, timeout: int) -> bool:
+    req = urllib.request.Request(
+        f"https://github.com/{owner}/{repo}",
+        headers={"User-Agent": "research-idea-scout-assets"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return 200 <= int(resp.status) < 400
+    except urllib.error.HTTPError as e:
+        return e.code not in {404, 410}
+    except Exception:
+        return False
+
+
 def github_contents_exists(owner: str, repo: str, names: Iterable[str], timeout: int) -> bool:
     for name in names:
         data, err = github_api_json(f"/repos/{owner}/{repo}/contents/{name}", timeout)
@@ -115,6 +129,13 @@ def verify_one(asset: Dict[str, Any], timeout: int = 12, offline: bool = False) 
                 "failure_reason": err,
             })
             readiness = 1.0
+        elif github_public_repo_exists(owner, repo, timeout):
+            code.update({
+                "status": "open_source_verified",
+                "runnable_status": "public_repo_metadata_limited",
+                "failure_reason": f"metadata_lookup:{err or 'empty_github_response'}",
+            })
+            readiness = max(float(out.get("scores", {}).get("code_readiness", 0) or 0), 5.0)
         else:
             code.update({
                 "status": "repo_found",
