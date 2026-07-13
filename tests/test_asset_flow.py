@@ -128,6 +128,149 @@ def test_portal_import_and_asset_routes(tmp_path: Path, monkeypatch) -> None:
     assert client.get(f"/assets/{asset['asset_id']}").status_code == 200
 
 
+def test_portal_routes_use_keyword_template_api(tmp_path: Path, monkeypatch) -> None:
+    asset = reviewed_asset()
+    jsonl = tmp_path / "assets.jsonl"
+    jsonl.write_text(json.dumps(asset, ensure_ascii=False) + "\n", encoding="utf-8")
+    db = tmp_path / "portal.db"
+    assert import_asset_rows(jsonl, db) == 1
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "INSERT INTO articles(id, title, venue, year, rank_score) VALUES (1, 'Source paper', 'ICLR', 2026, 8.0)"
+        )
+
+    monkeypatch.setenv("IDEASCOUT_PORTAL_DB", str(db))
+    import importlib
+    import web.app.main as main
+
+    importlib.reload(main)
+    original = main.templates.TemplateResponse
+
+    def keyword_only_template_response(
+        *, request, name, context, status_code=200, **kwargs
+    ):
+        return original(
+            request=request,
+            name=name,
+            context=context,
+            status_code=status_code,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(
+        main.templates,
+        "TemplateResponse",
+        keyword_only_template_response,
+    )
+    client = TestClient(main.app)
+
+    for path in (
+        "/",
+        "/articles",
+        "/articles/1",
+        "/assets",
+        "/assets/today",
+        f"/assets/{asset['asset_id']}",
+    ):
+        response = client.get(path)
+        assert response.status_code == 200, path
+
+
+def test_homepage_uses_sql_overview_without_full_materializers(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    asset = reviewed_asset()
+    jsonl = tmp_path / "assets.jsonl"
+    jsonl.write_text(json.dumps(asset, ensure_ascii=False) + "\n", encoding="utf-8")
+    db = tmp_path / "portal.db"
+    assert import_asset_rows(jsonl, db) == 1
+
+    monkeypatch.setenv("IDEASCOUT_PORTAL_DB", str(db))
+    import importlib
+    import web.app.main as main
+
+    importlib.reload(main)
+    main.warm_asset_base_cache()
+    statements: list[str] = []
+    original_connect = main.connect
+
+    def traced_connect():
+        connection = original_connect()
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    monkeypatch.setattr(main, "connect", traced_connect)
+    monkeypatch.setattr(
+        main,
+        "fetch_all_articles",
+        lambda: (_ for _ in ()).throw(AssertionError("full article load")),
+    )
+    monkeypatch.setattr(
+        main,
+        "fetch_all_assets",
+        lambda: (_ for _ in ()).throw(AssertionError("full asset load")),
+    )
+
+    response = TestClient(main.app).get("/")
+
+    assert response.status_code == 200
+    assert any("COUNT(" in statement.upper() for statement in statements)
+    assert not any("SELECT *" in statement.upper() for statement in statements)
+    assert not any("RAW_JSON" in statement.upper() for statement in statements)
+
+
+def test_asset_base_cache_is_immutable_but_user_fields_stay_live(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    asset = reviewed_asset()
+    jsonl = tmp_path / "assets.jsonl"
+    jsonl.write_text(json.dumps(asset, ensure_ascii=False) + "\n", encoding="utf-8")
+    db = tmp_path / "portal.db"
+    assert import_asset_rows(jsonl, db) == 1
+
+    monkeypatch.setenv("IDEASCOUT_PORTAL_DB", str(db))
+    import importlib
+    import web.app.main as main
+
+    importlib.reload(main)
+    conversions = 0
+    original_row_to_dict = main.row_to_dict
+
+    def counted_row_to_dict(row):
+        nonlocal conversions
+        if "asset_id" in row.keys():
+            conversions += 1
+        return original_row_to_dict(row)
+
+    monkeypatch.setattr(main, "row_to_dict", counted_row_to_dict)
+    first = main.fetch_all_assets()
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            """
+            INSERT INTO asset_user_state(asset_id, status, starred, updated_at, completed_on)
+            VALUES (?, 'done', 0, '2026-07-13T00:00:00+00:00', '2026-07-13')
+            """,
+            (asset["asset_id"],),
+        )
+        conn.execute(
+            "INSERT INTO asset_tags(asset_id, tag, created_at) VALUES (?, 'live-tag', '2026-07-13T00:00:00+00:00')",
+            (asset["asset_id"],),
+        )
+        conn.execute(
+            "UPDATE assets SET challenge = 'changed after warmup' WHERE asset_id = ?",
+            (asset["asset_id"],),
+        )
+    second = main.fetch_all_assets()
+
+    assert conversions == 1
+    assert first[0]["challenge"] == second[0]["challenge"]
+    assert first[0]["user_state"]["status"] == "unseen"
+    assert second[0]["user_state"]["status"] == "done"
+    assert second[0]["tags"] == ["live-tag"]
+
+
 def test_portal_defaults_to_asset_store_database(tmp_path: Path, monkeypatch) -> None:
     store = tmp_path / "shared" / "dataset" / "portal-store"
     store.mkdir(parents=True)

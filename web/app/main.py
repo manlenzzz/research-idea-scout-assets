@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock
 from typing import Any, Dict, Iterable, List, Tuple
 from urllib.parse import parse_qs
 from posixpath import basename, dirname, normpath, relpath
@@ -21,9 +23,41 @@ ASSET_STORE_ROOT = resolve_asset_store_root()
 DEFAULT_DB = ASSET_STORE_ROOT / "portal.db"
 DB_PATH = Path(os.environ.get("IDEASCOUT_PORTAL_DB", str(DEFAULT_DB))).resolve()
 
-app = FastAPI(title="IdeaScout Portal", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    warm_asset_base_cache()
+    yield
+
+
+app = FastAPI(title="IdeaScout Portal", version="0.1.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
+
+ASSET_BASE_COLUMNS = (
+    "id",
+    "asset_id",
+    "asset_type",
+    "profile_name",
+    "challenge",
+    "solution_pattern",
+    "mechanism",
+    "why_it_is_hard",
+    "code_status",
+    "code_url",
+    "pdf_status",
+    "pdf_url",
+    "asset_score",
+    "evidence_strength",
+    "code_readiness",
+    "source_title",
+    "source_venue",
+    "source_year",
+    "raw_json",
+)
+_ASSET_BASE_CACHE: Tuple[Dict[str, Any], ...] | None = None
+_ASSET_BASE_BY_ID: Dict[str, Dict[str, Any]] | None = None
+_ASSET_BASE_LOCK = Lock()
 
 
 def rel_url(path: str, depth: int = 0) -> str:
@@ -203,23 +237,81 @@ def fetch_all_articles() -> List[Dict[str, Any]]:
     return [row_to_dict(r) for r in rows]
 
 
+def clear_asset_base_cache() -> None:
+    global _ASSET_BASE_CACHE, _ASSET_BASE_BY_ID
+    with _ASSET_BASE_LOCK:
+        _ASSET_BASE_CACHE = None
+        _ASSET_BASE_BY_ID = None
 
-def fetch_all_assets() -> List[Dict[str, Any]]:
-    ensure_db()
+
+def warm_asset_base_cache() -> Tuple[Dict[str, Any], ...]:
+    global _ASSET_BASE_CACHE, _ASSET_BASE_BY_ID
+    if _ASSET_BASE_CACHE is not None:
+        return _ASSET_BASE_CACHE
+    with _ASSET_BASE_LOCK:
+        if _ASSET_BASE_CACHE is None:
+            ensure_db()
+            columns = ", ".join(ASSET_BASE_COLUMNS)
+            with connect() as conn:
+                rows = conn.execute(f"SELECT {columns} FROM assets").fetchall()
+            assets = []
+            for row in rows:
+                asset = row_to_dict(row)
+                asset["cluster"] = infer_asset_cluster(asset)
+                assets.append(asset)
+            _ASSET_BASE_CACHE = tuple(assets)
+            _ASSET_BASE_BY_ID = {
+                str(asset.get("asset_id") or ""): asset
+                for asset in _ASSET_BASE_CACHE
+            }
+    return _ASSET_BASE_CACHE
+
+
+def fetch_asset_user_fields() -> Tuple[Dict[str, Dict[str, Any]], Dict[str, List[str]]]:
     with connect() as conn:
-        rows = conn.execute("SELECT * FROM assets").fetchall()
         states = {
             row["asset_id"]: dict(row)
-            for row in conn.execute("SELECT asset_id, status, starred, updated_at, completed_on FROM asset_user_state")
+            for row in conn.execute(
+                "SELECT asset_id, status, starred, updated_at, completed_on FROM asset_user_state"
+            )
         }
-        tag_rows = conn.execute("SELECT asset_id, tag FROM asset_tags ORDER BY created_at, tag").fetchall()
+        tag_rows = conn.execute(
+            "SELECT asset_id, tag FROM asset_tags ORDER BY created_at, tag"
+        ).fetchall()
     tags: Dict[str, List[str]] = {}
     for row in tag_rows:
         tags.setdefault(row["asset_id"], []).append(row["tag"])
-    assets = [row_to_dict(r) for r in rows]
-    for asset in assets:
+    return states, tags
+
+
+
+def fetch_all_assets() -> List[Dict[str, Any]]:
+    base_assets = warm_asset_base_cache()
+    states, tags = fetch_asset_user_fields()
+    assets = []
+    for base_asset in base_assets:
+        asset = dict(base_asset)
         attach_asset_user_fields(asset, states=states, tags=tags)
+        assets.append(asset)
     return assets
+
+
+def fetch_asset(asset_id: str) -> Dict[str, Any] | None:
+    warm_asset_base_cache()
+    assert _ASSET_BASE_BY_ID is not None
+    base_asset = _ASSET_BASE_BY_ID.get(asset_id)
+    if base_asset is None:
+        return None
+    return attach_asset_user_fields(dict(base_asset))
+
+
+def fetch_asset_navigation(limit: int = 40) -> List[Dict[str, Any]]:
+    assets = sorted(
+        warm_asset_base_cache(),
+        key=lambda asset: score_value(asset, "asset_score"),
+        reverse=True,
+    )[:limit]
+    return [dict(asset) for asset in assets]
 
 
 def attach_asset_user_fields(
@@ -240,7 +332,7 @@ def attach_asset_user_fields(
         tags = {asset_id: [row["tag"] for row in tag_rows]}
     asset["user_state"] = states.get(asset_id, {"status": "unseen", "starred": 0, "completed_on": ""})
     asset["tags"] = tags.get(asset_id, [])
-    asset["cluster"] = infer_asset_cluster(asset)
+    asset.setdefault("cluster", infer_asset_cluster(asset))
     return asset
 
 
@@ -409,6 +501,84 @@ def collect_dimension_stats(articles: List[Dict[str, Any]]) -> List[Dict[str, An
     return stats[:12]
 
 
+def fetch_home_overview() -> Dict[str, Any]:
+    base_assets = warm_asset_base_cache()
+    with connect() as conn:
+        article_summary = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS article_total,
+                COALESCE(SUM(CASE WHEN LOWER(COALESCE(priority, '')) = 'keep' THEN 1 ELSE 0 END), 0) AS keep_total,
+                COALESCE(AVG(COALESCE(rank_score, 0.0)), 0.0) AS avg_rank,
+                COALESCE(MAX(COALESCE(rank_score, 0.0)), 0.0) AS top_score
+            FROM articles
+            """
+        ).fetchone()
+        top_papers = [
+            dict(row)
+            for row in conn.execute(
+                """
+                SELECT id, title, venue, year, rank_score
+                FROM articles
+                ORDER BY COALESCE(rank_score, 0.0) DESC
+                LIMIT 8
+                """
+            ).fetchall()
+        ]
+        score_rows = conn.execute(
+            """
+            SELECT scores_json
+            FROM articles
+            WHERE scores_json IS NOT NULL AND scores_json != ''
+            """
+        ).fetchall()
+        asset_summary = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS asset_total,
+                COALESCE(SUM(
+                    CASE WHEN code_status IN ('repo_found', 'open_source_verified')
+                    THEN 1 ELSE 0 END
+                ), 0) AS code_ready_total
+            FROM assets
+            """
+        ).fetchone()
+
+    dimension_articles: List[Dict[str, Any]] = []
+    for row in score_rows:
+        try:
+            scores = json.loads(row["scores_json"])
+        except (TypeError, json.JSONDecodeError):
+            scores = {}
+        dimension_articles.append(
+            {"scores": scores if isinstance(scores, dict) else {}, "raw": {}}
+        )
+
+    accepted = 0
+    weak = 0
+    for asset in base_assets:
+        raw = asset.get("raw") or {}
+        review = raw.get("llm_review") if isinstance(raw, dict) else None
+        verdict = str(review.get("verdict") or "").lower() if isinstance(review, dict) else ""
+        if verdict == "accept":
+            accepted += 1
+        elif verdict == "weak":
+            weak += 1
+
+    return {
+        "n": int(article_summary["article_total"]),
+        "keep": int(article_summary["keep_total"]),
+        "avg_rank": float(article_summary["avg_rank"]),
+        "top_score": float(article_summary["top_score"]),
+        "top_papers": top_papers,
+        "dimensions": collect_dimension_stats(dimension_articles),
+        "asset_total": int(asset_summary["asset_total"]),
+        "asset_accepted": accepted,
+        "asset_weak": weak,
+        "asset_code_ready": int(asset_summary["code_ready_total"]),
+    }
+
+
 def filter_articles(
     articles: List[Dict[str, Any]],
     q: str = "",
@@ -513,45 +683,15 @@ def filter_assets(
     return out
 
 
-@app.on_event("startup")
-def on_startup() -> None:
-    ensure_db()
-
-
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
-    articles = fetch_all_articles()
-    assets = fetch_all_assets()
-    n = len(articles)
-    keep = sum(1 for a in articles if (a.get("priority") or "").lower() == "keep")
-    avg_rank = sum(score_value(a, "rank_score") for a in articles) / n if n else 0.0
-    top_score = max([score_value(a, "rank_score") for a in articles], default=0.0)
-    top_papers = sorted(articles, key=lambda a: score_value(a, "rank_score"), reverse=True)[:8]
-    dimensions = collect_dimension_stats(articles)
-    accepted = 0
-    weak = 0
-    for asset in assets:
-        review = (asset.get("raw") or {}).get("llm_review")
-        verdict = (review or {}).get("verdict") if isinstance(review, dict) else ""
-        if verdict == "accept":
-            accepted += 1
-        elif verdict == "weak":
-            weak += 1
-    code_ready = sum(1 for asset in assets if (asset.get("code_status") or "") in {"repo_found", "open_source_verified"})
+    overview = fetch_home_overview()
     return templates.TemplateResponse(
-        "home.html",
-        {
+        request=request,
+        name="home.html",
+        context={
             "request": request,
-            "n": n,
-            "asset_total": len(assets),
-            "asset_accepted": accepted,
-            "asset_weak": weak,
-            "asset_code_ready": code_ready,
-            "keep": keep,
-            "avg_rank": avg_rank,
-            "top_score": top_score,
-            "top_papers": top_papers,
-            "dimensions": dimensions,
+            **overview,
             "db_path": str(DB_PATH),
             "url_depth": 0,
         },
@@ -569,8 +709,9 @@ def articles_page(
     all_articles = fetch_all_articles()
     filtered = filter_articles(all_articles, q=q, priority=priority, sort=sort)[:limit]
     return templates.TemplateResponse(
-        "articles.html",
-        {
+        request=request,
+        name="articles.html",
+        context={
             "request": request,
             "articles": filtered,
             "total": len(all_articles),
@@ -611,8 +752,9 @@ def assets_page(
         sort=sort,
     )[:limit]
     return templates.TemplateResponse(
-        "assets.html",
-        {
+        request=request,
+        name="assets.html",
+        context={
             "request": request,
             "assets": filtered,
             "total": len(all_assets),
@@ -650,8 +792,9 @@ def assets_today(request: Request, goal: int = Query(5, ge=1, le=50)) -> HTMLRes
         if ((asset.get("user_state") or {}).get("status") or "unseen") not in {"done", "skip"}
     ][: max(goal - len(done_today), 1)]
     return templates.TemplateResponse(
-        "assets_today.html",
-        {
+        request=request,
+        name="assets_today.html",
+        context={
             "request": request,
             "assets": queue[:1],
             "queue": queue,
@@ -676,25 +819,15 @@ async def update_asset_state(request: Request, asset_id: str) -> RedirectRespons
 
 @app.get("/assets/{asset_id}", response_class=HTMLResponse)
 def asset_detail(request: Request, asset_id: str) -> HTMLResponse:
-    ensure_db()
-    with connect() as conn:
-        row = conn.execute("SELECT * FROM assets WHERE asset_id = ?", (asset_id,)).fetchone()
-        nav_rows = conn.execute(
-            """
-            SELECT asset_id, asset_score, source_title, source_venue, source_year, raw_json
-            FROM assets
-            ORDER BY asset_score DESC
-            LIMIT 40
-            """
-        ).fetchall()
-    if row is None:
+    asset = fetch_asset(asset_id)
+    if asset is None:
         return templates.TemplateResponse(
-            "asset_detail.html",
-            {"request": request, "asset": None, "asset_nav": [], "url_depth": 1},
+            request=request,
+            name="asset_detail.html",
+            context={"request": request, "asset": None, "asset_nav": [], "url_depth": 1},
             status_code=404,
         )
-    asset = attach_asset_user_fields(row_to_dict(row))
-    asset_nav = [row_to_dict(r) for r in nav_rows]
+    asset_nav = fetch_asset_navigation()
     if not any(item.get("asset_id") == asset_id for item in asset_nav):
         asset_nav.insert(
             0,
@@ -708,8 +841,9 @@ def asset_detail(request: Request, asset_id: str) -> HTMLResponse:
             },
         )
     return templates.TemplateResponse(
-        "asset_detail.html",
-        {"request": request, "asset": asset, "asset_nav": asset_nav, "url_depth": 1},
+        request=request,
+        name="asset_detail.html",
+        context={"request": request, "asset": asset, "asset_nav": asset_nav, "url_depth": 1},
     )
 
 
@@ -728,12 +862,19 @@ def article_detail(request: Request, article_id: int) -> HTMLResponse:
         row = conn.execute("SELECT * FROM articles WHERE id = ?", (article_id,)).fetchone()
     if row is None:
         return templates.TemplateResponse(
-            "article_detail.html",
-            {"request": request, "article": None, "scores": [], "url_depth": 1},
+            request=request,
+            name="article_detail.html",
+            context={"request": request, "article": None, "scores": [], "url_depth": 1},
             status_code=404,
         )
     article = row_to_dict(row)
     return templates.TemplateResponse(
-        "article_detail.html",
-        {"request": request, "article": article, "scores": score_items(article), "url_depth": 1},
+        request=request,
+        name="article_detail.html",
+        context={
+            "request": request,
+            "article": article,
+            "scores": score_items(article),
+            "url_depth": 1,
+        },
     )
