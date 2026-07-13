@@ -212,12 +212,18 @@ def test_homepage_uses_sql_overview_without_full_materializers(
         lambda: (_ for _ in ()).throw(AssertionError("full asset load")),
     )
 
-    response = TestClient(main.app).get("/")
+    with TestClient(main.app) as client:
+        startup_statement_count = len(statements)
+        response = client.get("/")
+        second_response = client.get("/")
 
     assert response.status_code == 200
+    assert second_response.status_code == 200
     assert any("COUNT(" in statement.upper() for statement in statements)
     assert not any("SELECT *" in statement.upper() for statement in statements)
     assert not any("RAW_JSON" in statement.upper() for statement in statements)
+    assert not any("FROM ASSETS" in statement.upper() for statement in statements)
+    assert len(statements) == startup_statement_count
 
 
 def test_asset_base_cache_is_immutable_but_user_fields_stay_live(

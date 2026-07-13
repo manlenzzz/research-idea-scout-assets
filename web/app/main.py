@@ -27,6 +27,7 @@ DB_PATH = Path(os.environ.get("IDEASCOUT_PORTAL_DB", str(DEFAULT_DB))).resolve()
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     warm_asset_base_cache()
+    warm_home_overview_cache()
     yield
 
 
@@ -58,6 +59,8 @@ ASSET_BASE_COLUMNS = (
 _ASSET_BASE_CACHE: Tuple[Dict[str, Any], ...] | None = None
 _ASSET_BASE_BY_ID: Dict[str, Dict[str, Any]] | None = None
 _ASSET_BASE_LOCK = Lock()
+_HOME_OVERVIEW_CACHE: Dict[str, Any] | None = None
+_HOME_OVERVIEW_LOCK = Lock()
 
 
 def rel_url(path: str, depth: int = 0) -> str:
@@ -238,10 +241,12 @@ def fetch_all_articles() -> List[Dict[str, Any]]:
 
 
 def clear_asset_base_cache() -> None:
-    global _ASSET_BASE_CACHE, _ASSET_BASE_BY_ID
+    global _ASSET_BASE_CACHE, _ASSET_BASE_BY_ID, _HOME_OVERVIEW_CACHE
     with _ASSET_BASE_LOCK:
         _ASSET_BASE_CACHE = None
         _ASSET_BASE_BY_ID = None
+    with _HOME_OVERVIEW_LOCK:
+        _HOME_OVERVIEW_CACHE = None
 
 
 def warm_asset_base_cache() -> Tuple[Dict[str, Any], ...]:
@@ -501,8 +506,7 @@ def collect_dimension_stats(articles: List[Dict[str, Any]]) -> List[Dict[str, An
     return stats[:12]
 
 
-def fetch_home_overview() -> Dict[str, Any]:
-    base_assets = warm_asset_base_cache()
+def _load_home_overview(base_assets: Tuple[Dict[str, Any], ...]) -> Dict[str, Any]:
     with connect() as conn:
         article_summary = conn.execute(
             """
@@ -532,17 +536,6 @@ def fetch_home_overview() -> Dict[str, Any]:
             WHERE scores_json IS NOT NULL AND scores_json != ''
             """
         ).fetchall()
-        asset_summary = conn.execute(
-            """
-            SELECT
-                COUNT(*) AS asset_total,
-                COALESCE(SUM(
-                    CASE WHEN code_status IN ('repo_found', 'open_source_verified')
-                    THEN 1 ELSE 0 END
-                ), 0) AS code_ready_total
-            FROM assets
-            """
-        ).fetchone()
 
     dimension_articles: List[Dict[str, Any]] = []
     for row in score_rows:
@@ -556,6 +549,7 @@ def fetch_home_overview() -> Dict[str, Any]:
 
     accepted = 0
     weak = 0
+    code_ready = 0
     for asset in base_assets:
         raw = asset.get("raw") or {}
         review = raw.get("llm_review") if isinstance(raw, dict) else None
@@ -564,6 +558,11 @@ def fetch_home_overview() -> Dict[str, Any]:
             accepted += 1
         elif verdict == "weak":
             weak += 1
+        if (asset.get("code_status") or "") in {
+            "repo_found",
+            "open_source_verified",
+        }:
+            code_ready += 1
 
     return {
         "n": int(article_summary["article_total"]),
@@ -572,11 +571,26 @@ def fetch_home_overview() -> Dict[str, Any]:
         "top_score": float(article_summary["top_score"]),
         "top_papers": top_papers,
         "dimensions": collect_dimension_stats(dimension_articles),
-        "asset_total": int(asset_summary["asset_total"]),
+        "asset_total": len(base_assets),
         "asset_accepted": accepted,
         "asset_weak": weak,
-        "asset_code_ready": int(asset_summary["code_ready_total"]),
+        "asset_code_ready": code_ready,
     }
+
+
+def warm_home_overview_cache() -> Dict[str, Any]:
+    global _HOME_OVERVIEW_CACHE
+    if _HOME_OVERVIEW_CACHE is not None:
+        return dict(_HOME_OVERVIEW_CACHE)
+    base_assets = warm_asset_base_cache()
+    with _HOME_OVERVIEW_LOCK:
+        if _HOME_OVERVIEW_CACHE is None:
+            _HOME_OVERVIEW_CACHE = _load_home_overview(base_assets)
+    return dict(_HOME_OVERVIEW_CACHE)
+
+
+def fetch_home_overview() -> Dict[str, Any]:
+    return warm_home_overview_cache()
 
 
 def filter_articles(
