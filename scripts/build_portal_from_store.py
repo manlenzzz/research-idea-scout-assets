@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from idea_scout.storage import resolve_asset_store_argument  # noqa: E402
 from web.import_jsonl import import_asset_rows, import_rows  # noqa: E402
 
 
@@ -139,7 +140,7 @@ def summarize_batch(args: argparse.Namespace, batch: str, assets: list[dict], db
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--store", default="/vePFS-Mindverse/user/intern/zhouch/asset_store")
+    ap.add_argument("--store", default=None, help="Verified shared dataset store; defaults to IDEASCOUT_ASSET_STORE.")
     ap.add_argument("--batch", default="", help="Single batch to import. Defaults to all canonical batches.")
     ap.add_argument(
         "--batches",
@@ -150,7 +151,7 @@ def main() -> None:
     ap.add_argument("--model", default="claude-opus-4-8 (claude -p)")
     args = ap.parse_args()
 
-    store = Path(args.store)
+    store = resolve_asset_store_argument(args.store)
     db_path = store / "portal.db"
     batches = [args.batch] if args.batch else parse_batches(args.batches)
     if not batches:

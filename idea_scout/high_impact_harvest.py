@@ -22,6 +22,7 @@ from .discover_code import discover_one
 from .ingest_pdf import extract_text, ingest_one
 from .io_utils import clean_text, read_jsonl, write_jsonl
 from .llm_review_assets import annotate_review_metadata, build_runner, provider_cache_dir, reviewer_identity, Runner, review_one
+from .storage import resolve_asset_store_argument
 from .verify_code import verify_one
 
 
@@ -1067,7 +1068,7 @@ def rebuild_portal_append(repo_root: Path, store: Path, assets_path: Path, log_p
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Harvest high-impact, code-backed research assets into the asset store.")
-    parser.add_argument("--store", default="/vePFS-Mindverse/user/intern/zhouch/asset_store")
+    parser.add_argument("--store", default=None, help="Verified shared dataset store; defaults to IDEASCOUT_ASSET_STORE.")
     parser.add_argument("--batch", default="high_impact")
     parser.add_argument("--sources", default="primary", help="Comma list or groups: primary, ml, cvf, acl/nlp, or venue names.")
     parser.add_argument("--min-year", type=int, default=2016)
@@ -1095,7 +1096,8 @@ def main() -> None:
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
-    store = Path(args.store)
+    store = resolve_asset_store_argument(args.store)
+    args.store = str(store)
     batch_dir = store / args.batch
     batch_dir.mkdir(parents=True, exist_ok=True)
     log_path = batch_dir / "run_events.jsonl"

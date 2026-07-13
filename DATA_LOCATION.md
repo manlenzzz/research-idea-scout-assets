@@ -1,14 +1,18 @@
 # Data Location
 
-The authoritative asset store is outside this git repo:
+The authoritative asset store is outside this git repo on the shared dataset
+volume. The two spellings below refer to the same CPFS directory:
 
-`/vePFS-Mindverse/user/intern/zhouch/asset_store`
+- 1018: `/vePFS-Mindverse/share/dataset/research-idea-scout-assets`
+- 6688: `/mnt/data/share/dataset/research-idea-scout-assets`
+- MLP/local: unavailable; generated corpora and portal databases are forbidden
+  on this host.
 
 Current canonical asset library:
 
-- Store root: `/vePFS-Mindverse/user/intern/zhouch/asset_store`
-- Portal DB: `/vePFS-Mindverse/user/intern/zhouch/asset_store/portal.db`
-- Store manifest: `/vePFS-Mindverse/user/intern/zhouch/asset_store/MANIFEST.json`
+- Store root: `$IDEASCOUT_ASSET_STORE`
+- Portal DB: `$IDEASCOUT_ASSET_STORE/portal.db`
+- Store manifest: `$IDEASCOUT_ASSET_STORE/MANIFEST.json`
 
 The canonical library is the union of these reviewed batches:
 
@@ -23,6 +27,5 @@ As of 2026-06-24, the portal database contains 982 assets under this canonical
 union. `bestpaper/assets.jsonl` alone contains 125 assets and should be treated
 as one batch, not the full library.
 
-Archived repo-local generated data was moved to:
-
-`/vePFS-Mindverse/user/intern/zhouch/asset_store/archive/repo-local-2026-06-17`
+Archived repo-local generated data is retained under
+`$IDEASCOUT_ASSET_STORE/archive/repo-local-2026-06-17`.

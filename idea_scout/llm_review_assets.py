@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, Iterable, List
 
 from .assets import compute_asset_score, read_assets, utc_now, write_assets
 from .io_utils import clean_text, write_jsonl
+from .storage import resolve_asset_store_path
 
 
 Runner = Callable[[str, int], str]
@@ -535,7 +536,7 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--only-code-status", default="")
     ap.add_argument("--timeout", type=int, default=120)
-    ap.add_argument("--cache-dir", default="data/llm_review_cache")
+    ap.add_argument("--cache-dir", default=None, help="Cache directory inside the verified shared asset store.")
     ap.add_argument("--review-provider", choices=["codex", "openai", "command"], default="codex")
     ap.add_argument("--review-model", default=os.environ.get("PAPERHUB_AGENT_MODEL", "gpt-5.5"))
     ap.add_argument("--openai-base-url", default=os.environ.get("OPENAI_BASE_URL", ""))
@@ -560,13 +561,18 @@ def main() -> None:
 
     reviewer_model = reviewer_identity(args.review_provider, args.review_model, args.model_command)
     runner = build_runner(args.review_provider, args.review_model, args.model_command, args.openai_base_url)
+    cache_dir = None
+    if not args.no_cache:
+        cache_root = resolve_asset_store_path(args.cache_dir, "cache/llm_review")
+        cache_dir = provider_cache_dir(cache_root, args.review_provider, reviewer_model)
+
     reviewed, stats = review_assets(
         assets,
         runner=runner,
         limit=args.limit,
         only_code_status=args.only_code_status,
         timeout=args.timeout,
-        cache_dir=None if args.no_cache else provider_cache_dir(args.cache_dir, args.review_provider, reviewer_model),
+        cache_dir=cache_dir,
         skip_existing=not args.retry_existing,
     )
     reviewed = [annotate_review_metadata(asset, args.review_provider, reviewer_model) for asset in reviewed]

@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 from idea_scout.assets import read_assets, write_assets  # noqa: E402
 from idea_scout.high_impact_harvest import existing_store_asset_paths, existing_title_keys, slugify  # noqa: E402
 from idea_scout.io_utils import clean_text  # noqa: E402
+from idea_scout.storage import resolve_asset_store_argument  # noqa: E402
 
 
 def parse_batches(raw: str) -> list[str]:
@@ -36,13 +37,13 @@ def asset_key(asset: dict) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Merge selected store batches into one deduplicated asset batch.")
-    ap.add_argument("--store", default="/vePFS-Mindverse/user/intern/zhouch/asset_store")
+    ap.add_argument("--store", default=None, help="Verified shared dataset store; defaults to IDEASCOUT_ASSET_STORE.")
     ap.add_argument("--batches", required=True, help="Comma-separated input batch names.")
     ap.add_argument("--output-batch", required=True)
     ap.add_argument("--exclude-batches", default="", help="Existing batches to exclude by title; defaults to none.")
     args = ap.parse_args()
 
-    store = Path(args.store)
+    store = resolve_asset_store_argument(args.store)
     out_dir = store / args.output_batch
     out_path = out_dir / "assets.jsonl"
     out_dir.mkdir(parents=True, exist_ok=True)

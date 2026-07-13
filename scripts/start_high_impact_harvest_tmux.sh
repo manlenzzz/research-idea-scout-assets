@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STORE="${IDEASCOUT_ASSET_STORE:-/vePFS-Mindverse/user/intern/zhouch/asset_store}"
+STORE="$(cd "$REPO_ROOT" && /opt/venv/bin/python -c 'from idea_scout.storage import resolve_asset_store_root; print(resolve_asset_store_root())')"
 BATCH="${IDEASCOUT_HIGH_IMPACT_BATCH:-high_impact}"
 SESSION="${IDEASCOUT_HIGH_IMPACT_SESSION:-ideascout_highimpact}"
 SOURCES="${IDEASCOUT_HIGH_IMPACT_SOURCES:-ml,cvf,acl}"

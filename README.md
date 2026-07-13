@@ -308,15 +308,19 @@ The profile is the main control interface. A precise profile gives more useful r
 
 ## 🔎 Step 2: Filter Candidate Papers
 
-Run rule-based filtering:
+Run rule-based filtering on 1018 or 6688. Point the run root inside the verified
+shared asset store:
 
 ```bash
+export IDEASCOUT_RUN_ROOT="$IDEASCOUT_ASSET_STORE/work/quickstart"
+mkdir -p "$IDEASCOUT_RUN_ROOT"
+
 python scripts/filter_candidates.py \
   --input examples/example_input.jsonl \
   --profile configs/my_profile.yaml \
-  --output-keep data/candidates.jsonl \
-  --output-reject data/rejected.jsonl \
-  --output-summary reports/filter_summary.json \
+  --output-keep "$IDEASCOUT_RUN_ROOT/candidates.jsonl" \
+  --output-reject "$IDEASCOUT_RUN_ROOT/rejected.jsonl" \
+  --output-summary "$IDEASCOUT_RUN_ROOT/filter_summary.json" \
   --target-total 2000 \
   --min-score 1.0
 ```
@@ -324,9 +328,9 @@ python scripts/filter_candidates.py \
 This produces:
 
 ```text
-data/candidates.jsonl
-data/rejected.jsonl
-reports/filter_summary.json
+$IDEASCOUT_RUN_ROOT/candidates.jsonl
+$IDEASCOUT_RUN_ROOT/rejected.jsonl
+$IDEASCOUT_RUN_ROOT/filter_summary.json
 ```
 
 The filtering step is fast and does not call an LLM.
@@ -339,10 +343,10 @@ Before running a large job, test one paper first:
 
 ```bash
 python -u scripts/score_with_codex.py \
-  --input data/candidates.jsonl \
+  --input "$IDEASCOUT_RUN_ROOT/candidates.jsonl" \
   --profile configs/my_profile.yaml \
-  --output data/test_scores.jsonl \
-  --failures-output data/test_failures.jsonl \
+  --output "$IDEASCOUT_RUN_ROOT/test_scores.jsonl" \
+  --failures-output "$IDEASCOUT_RUN_ROOT/test_failures.jsonl" \
   --top-k 1 \
   --max-new-items 1 \
   --codex-cmd "codex exec"
@@ -352,10 +356,10 @@ If the test works, run the full scoring job:
 
 ```bash
 nohup python -u scripts/run_autoretry.py \
-  --input data/candidates.jsonl \
+  --input "$IDEASCOUT_RUN_ROOT/candidates.jsonl" \
   --profile configs/my_profile.yaml \
-  --output data/idea_scores.jsonl \
-  --failures-output data/idea_score_failures.jsonl \
+  --output "$IDEASCOUT_RUN_ROOT/idea_scores.jsonl" \
+  --failures-output "$IDEASCOUT_RUN_ROOT/idea_score_failures.jsonl" \
   --top-k 2000 \
   --codex-cmd "codex exec" \
   --batch-size 1 \
@@ -363,7 +367,7 @@ nohup python -u scripts/run_autoretry.py \
   --sleep-on-quota 3600 \
   --sleep-on-error 600 \
   --timeout 900 \
-  > logs/run_idea_scores_$(date +%F-%H%M%S).out 2>&1 &
+  > "$IDEASCOUT_RUN_ROOT/run_idea_scores_$(date +%F-%H%M%S).out" 2>&1 &
 ```
 
 ---
@@ -372,20 +376,20 @@ nohup python -u scripts/run_autoretry.py \
 
 ```bash
 python scripts/check_progress.py \
-  --output data/idea_scores.jsonl \
+  --output "$IDEASCOUT_RUN_ROOT/idea_scores.jsonl" \
   --target-total 2000
 ```
 
 Or monitor continuously:
 
 ```bash
-watch -n 30 'python scripts/check_progress.py --output data/idea_scores.jsonl --target-total 2000'
+watch -n 30 "python scripts/check_progress.py --output '$IDEASCOUT_RUN_ROOT/idea_scores.jsonl' --target-total 2000"
 ```
 
 To inspect the latest log:
 
 ```bash
-tail -f $(ls -t logs/run_idea_scores_*.out | head -1)
+tail -f "$(ls -t "$IDEASCOUT_RUN_ROOT"/run_idea_scores_*.out | head -1)"
 ```
 
 ---
@@ -394,8 +398,8 @@ tail -f $(ls -t logs/run_idea_scores_*.out | head -1)
 
 ```bash
 python scripts/export_rankings.py \
-  --input data/idea_scores.jsonl \
-  --output data/top100_ideas.csv \
+  --input "$IDEASCOUT_RUN_ROOT/idea_scores.jsonl" \
+  --output "$IDEASCOUT_RUN_ROOT/top100_ideas.csv" \
   --top-k 100
 ```
 
@@ -466,17 +470,18 @@ The portal provides:
 
 ## 🖥️ Run the Web Portal
 
-The default portal database is the canonical asset-store database:
+Run the portal on 1018 or 6688. The resolver validates the host's real shared
+mount and reads the canonical database at:
 
 ```text
-/vePFS-Mindverse/user/intern/zhouch/asset_store/portal.db
+$IDEASCOUT_ASSET_STORE/portal.db
 ```
 
 Rebuild it from the canonical batches when the store changes:
 
 ```bash
 python scripts/build_portal_from_store.py \
-  --store /vePFS-Mindverse/user/intern/zhouch/asset_store
+  --store "$IDEASCOUT_ASSET_STORE"
 ```
 
 Then start the web server:
@@ -487,19 +492,8 @@ python -m uvicorn web.app.main:app \
   --port 8080
 ```
 
-For a temporary local experiment, import a JSONL file into a separate database
-and override `IDEASCOUT_PORTAL_DB`:
-
-```bash
-python web/import_jsonl.py \
-  --input data/idea_scores.jsonl \
-  --db web/ideascout_portal.db
-
-IDEASCOUT_PORTAL_DB=web/ideascout_portal.db \
-  python -m uvicorn web.app.main:app \
-  --host 127.0.0.1 \
-  --port 8080
-```
+MLP/local is limited to source editing and small test fixtures. It must not host
+the generated corpus or portal database.
 
 Open:
 
@@ -682,47 +676,49 @@ This branch extends IdeaScout from paper ranking to a reusable research asset li
 The asset flow keeps papers as sources, but promotes transferable insights and methods into first-class records:
 
 ```bash
+export IDEASCOUT_RUN_ROOT="$IDEASCOUT_ASSET_STORE/work/asset-library"
+mkdir -p "$IDEASCOUT_RUN_ROOT"
+
 python scripts/extract_assets.py \
   --input examples/example_input.jsonl \
-  --output data/assets.jsonl \
+  --output "$IDEASCOUT_RUN_ROOT/assets.jsonl" \
   --profile-name my_profile
 
 python scripts/verify_code.py \
-  --input data/assets.jsonl \
-  --output data/assets_with_code.jsonl \
+  --input "$IDEASCOUT_RUN_ROOT/assets.jsonl" \
+  --output "$IDEASCOUT_RUN_ROOT/assets_with_code.jsonl" \
   --offline
 
 python scripts/ingest_pdf.py \
-  --input data/assets_with_code.jsonl \
-  --output data/assets_with_pdf.jsonl \
-  --work-dir data/pdf_ingest
+  --input "$IDEASCOUT_RUN_ROOT/assets_with_code.jsonl" \
+  --output "$IDEASCOUT_RUN_ROOT/assets_with_pdf.jsonl"
 
 python scripts/enhance_insights.py \
-  --input data/assets_with_pdf.jsonl \
-  --output data/assets_insight.jsonl
+  --input "$IDEASCOUT_RUN_ROOT/assets_with_pdf.jsonl" \
+  --output "$IDEASCOUT_RUN_ROOT/assets_insight.jsonl"
 
 python scripts/llm_review_assets.py \
-  --input data/assets_insight.jsonl \
-  --output data/assets_llm_reviewed.jsonl \
+  --input "$IDEASCOUT_RUN_ROOT/assets_insight.jsonl" \
+  --output "$IDEASCOUT_RUN_ROOT/assets_llm_reviewed.jsonl" \
   --limit 25 \
   --only-code-status repo_found \
   --model-command "claude -p --no-session-persistence"
 
 python scripts/export_assets.py \
-  --input data/assets_llm_reviewed.jsonl \
-  --output data/assets.csv
+  --input "$IDEASCOUT_RUN_ROOT/assets_llm_reviewed.jsonl" \
+  --output "$IDEASCOUT_RUN_ROOT/assets.csv"
 
 python scripts/build_portal_from_store.py \
-  --store /vePFS-Mindverse/user/intern/zhouch/asset_store
+  --store "$IDEASCOUT_ASSET_STORE"
 ```
 
-For a temporary local experiment, import one JSONL file into a separate portal
-database:
+To inspect one run without replacing the canonical portal, write a separate DB
+inside the same shared run root:
 
 ```bash
 python web/import_jsonl.py \
-  --input data/assets_with_pdf.jsonl \
-  --db web/ideascout_portal.db \
+  --input "$IDEASCOUT_RUN_ROOT/assets_with_pdf.jsonl" \
+  --db "$IDEASCOUT_RUN_ROOT/ideascout_portal.db" \
   --kind assets
 ```
 

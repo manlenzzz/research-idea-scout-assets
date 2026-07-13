@@ -13,10 +13,11 @@ from fastapi import FastAPI, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from idea_scout.storage import resolve_asset_store_root
 
 APP_DIR = Path(__file__).resolve().parent
 WEB_DIR = APP_DIR.parent
-ASSET_STORE_ROOT = Path(os.environ.get("IDEASCOUT_ASSET_STORE", "/vePFS-Mindverse/user/intern/zhouch/asset_store")).resolve()
+ASSET_STORE_ROOT = resolve_asset_store_root()
 DEFAULT_DB = ASSET_STORE_ROOT / "portal.db"
 DB_PATH = Path(os.environ.get("IDEASCOUT_PORTAL_DB", str(DEFAULT_DB))).resolve()
 

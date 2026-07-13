@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 
 from idea_scout.asset_figures import crop_main_figure_from_page
 from idea_scout.assets import read_assets, utc_now, write_assets
+from idea_scout.storage import resolve_asset_store_argument
 
 
 def cropped_path_for(page_path: Path) -> Path:
@@ -67,11 +68,11 @@ def crop_batch(store: Path, batch: str) -> dict[str, int]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Crop existing whole-page figure screenshots into tighter main-figure images.")
-    ap.add_argument("--store", default="/vePFS-Mindverse/user/intern/zhouch/asset_store")
+    ap.add_argument("--store", default=None, help="Verified shared dataset store; defaults to IDEASCOUT_ASSET_STORE.")
     ap.add_argument("--batch", action="append", required=True)
     args = ap.parse_args()
 
-    store = Path(args.store)
+    store = resolve_asset_store_argument(args.store)
     for batch in args.batch:
         print(json.dumps(crop_batch(store, batch), ensure_ascii=False), flush=True)
 

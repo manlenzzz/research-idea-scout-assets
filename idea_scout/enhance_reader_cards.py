@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, Iterable, List
 from .asset_figures import attach_important_figure
 from .assets import read_assets, utc_now, write_assets
 from .reader_cards import make_fallback_reader_card, sanitize_reader_card
+from .storage import resolve_asset_store_argument
 
 
 def utc_stamp() -> str:
@@ -102,7 +103,7 @@ def atomic_write_assets(path: Path, assets: Iterable[Dict[str, Any]]) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Add reader_card and selected paper figures to asset JSONL files.")
-    ap.add_argument("--store", default="/vePFS-Mindverse/user/intern/zhouch/asset_store")
+    ap.add_argument("--store", default=None, help="Verified shared dataset store; defaults to IDEASCOUT_ASSET_STORE.")
     ap.add_argument("--batch", required=True)
     ap.add_argument("--input", default="", help="Defaults to <store>/<batch>/assets.jsonl")
     ap.add_argument("--output", default="", help="Defaults to in-place atomic replacement.")
@@ -116,7 +117,7 @@ def main() -> None:
     ap.add_argument("--no-snapshot", action="store_true")
     args = ap.parse_args()
 
-    store = Path(args.store)
+    store = resolve_asset_store_argument(args.store)
     batch_dir = store / args.batch
     input_path = Path(args.input) if args.input else batch_dir / "assets.jsonl"
     output_path = Path(args.output) if args.output else input_path

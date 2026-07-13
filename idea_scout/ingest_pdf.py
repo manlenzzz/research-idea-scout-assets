@@ -11,6 +11,7 @@ from typing import Dict
 
 from .assets import compute_asset_score, read_assets, utc_now, write_assets
 from .io_utils import clean_text
+from .storage import resolve_asset_store_path
 
 
 SECTION_PATTERNS = {
@@ -188,12 +189,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Ingest PDF text and section evidence for Insight/Method assets.")
     ap.add_argument("--input", required=True)
     ap.add_argument("--output", required=True)
-    ap.add_argument("--work-dir", default="data/pdf_ingest")
+    ap.add_argument("--work-dir", default=None, help="Directory inside the verified shared asset store.")
     ap.add_argument("--timeout", type=int, default=30)
     ap.add_argument("--no-fallback", action="store_true")
     args = ap.parse_args()
 
-    output_dir = Path(args.work_dir)
+    output_dir = resolve_asset_store_path(args.work_dir, "work/pdf_ingest")
     assets = [
         ingest_one(asset, output_dir=output_dir, timeout=args.timeout, use_fallback=not args.no_fallback)
         for asset in read_assets(args.input)

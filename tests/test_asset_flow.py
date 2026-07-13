@@ -129,8 +129,8 @@ def test_portal_import_and_asset_routes(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_portal_defaults_to_asset_store_database(tmp_path: Path, monkeypatch) -> None:
-    store = tmp_path / "store"
-    store.mkdir()
+    store = tmp_path / "shared" / "dataset" / "portal-store"
+    store.mkdir(parents=True)
     monkeypatch.setenv("IDEASCOUT_ASSET_STORE", str(store))
     monkeypatch.delenv("IDEASCOUT_PORTAL_DB", raising=False)
 
@@ -410,7 +410,7 @@ def test_portal_asset_cards_use_reviewed_method_asset_format(tmp_path: Path, mon
 
 
 def test_portal_serves_asset_files_from_store(tmp_path: Path, monkeypatch) -> None:
-    store = tmp_path / "store"
+    store = tmp_path / "shared" / "dataset" / "route-store"
     figure = store / "figures" / "vtm-asset" / "figure-1.png"
     figure.parent.mkdir(parents=True)
     figure.write_bytes(b"\x89PNG\r\n\x1a\n")

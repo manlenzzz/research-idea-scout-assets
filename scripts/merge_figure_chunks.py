@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from idea_scout.assets import read_assets, utc_now, write_assets
+from idea_scout.storage import resolve_asset_store_argument
 
 
 def load_chunk_results(paths: list[Path]) -> dict[str, list[dict]]:
@@ -32,12 +33,12 @@ def load_chunk_results(paths: list[Path]) -> dict[str, list[dict]]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Merge chunked figure extraction outputs into one batch assets.jsonl.")
-    ap.add_argument("--store", default="/vePFS-Mindverse/user/intern/zhouch/asset_store")
+    ap.add_argument("--store", default=None, help="Verified shared dataset store; defaults to IDEASCOUT_ASSET_STORE.")
     ap.add_argument("--batch", required=True)
     ap.add_argument("--chunks-dir", required=True)
     args = ap.parse_args()
 
-    store = Path(args.store)
+    store = resolve_asset_store_argument(args.store)
     batch_path = store / args.batch / "assets.jsonl"
     assets = read_assets(batch_path)
     chunk_paths = sorted(Path(args.chunks_dir).glob(f"{args.batch}.*.jsonl"))

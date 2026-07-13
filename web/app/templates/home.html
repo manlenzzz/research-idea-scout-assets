@@ -58,15 +58,15 @@
       {% endfor %}
       </div>
     {% else %}
-      <p class="empty">No papers imported yet. Run <code>python web/import_jsonl.py --input data/idea_scores.jsonl</code>.</p>
+      <p class="empty">No papers imported yet.</p>
     {% endif %}
   </div>
 </section>
 
 <section class="card panel">
   <h2>How to refresh the library</h2>
-  <pre><code>python scripts/build_portal_from_store.py \
-  --store /vePFS-Mindverse/user/intern/zhouch/asset_store
+<pre><code>python scripts/build_portal_from_store.py \
+  --store "$IDEASCOUT_ASSET_STORE"
 
 python -m uvicorn web.app.main:app \
   --host 127.0.0.1 \

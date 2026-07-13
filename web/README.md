@@ -14,7 +14,7 @@ pip install fastapi uvicorn jinja2
 
 ```bash
 python scripts/build_portal_from_store.py \
-  --store /vePFS-Mindverse/user/intern/zhouch/asset_store
+  --store "$IDEASCOUT_ASSET_STORE"
 ```
 
 ## 3. Run the portal
@@ -25,14 +25,14 @@ python -m uvicorn web.app.main:app \
   --port 8080
 ```
 
-By default, the portal reads:
+The validated shared-store resolver reads:
 
 ```text
-/vePFS-Mindverse/user/intern/zhouch/asset_store/portal.db
+$IDEASCOUT_ASSET_STORE/portal.db
 ```
 
-For a temporary local experiment, import JSONL into a separate database and set
-`IDEASCOUT_PORTAL_DB` when launching the server.
+Run the portal on 1018 or 6688. MLP/local may use small temporary fixtures in
+tests, but must not host the generated corpus or portal database.
 
 Open:
 

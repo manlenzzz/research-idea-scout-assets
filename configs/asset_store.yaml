@@ -8,7 +8,9 @@
 # Scripts and the web portal read the store path from this file (or the
 # IDEASCOUT_ASSET_STORE env var, which takes precedence).
 
-asset_store_root: /vePFS-Mindverse/user/intern/zhouch/asset_store
+# Resolved at runtime from IDEASCOUT_ASSET_STORE after validating the active
+# 1018 or 6688 shared mount. There is intentionally no MLP/local fallback.
+asset_store_root: null
 
 batches:
   # Canonical asset library batches. The current library is the union of
