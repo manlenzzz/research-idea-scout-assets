@@ -9,6 +9,7 @@ from idea_scout.storage import resolve_asset_store_path, resolve_asset_store_roo
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LEGACY_LOCAL_STORE = "/vePFS-Mindverse/user/intern/zhouch/asset_store"
+MLP_ONLY_PYTHON = "/opt/venv/bin/python"
 PROJECT_LOCAL_DATA_PATTERN = re.compile(r"(?<![/A-Za-z0-9_])data/")
 
 
@@ -107,6 +108,8 @@ def test_runtime_and_operator_docs_do_not_hardcode_local_storage() -> None:
             forbidden = []
             if LEGACY_LOCAL_STORE in content:
                 forbidden.append(LEGACY_LOCAL_STORE)
+            if MLP_ONLY_PYTHON in content:
+                forbidden.append(MLP_ONLY_PYTHON)
             if PROJECT_LOCAL_DATA_PATTERN.search(content):
                 forbidden.append("project-local data/")
             if forbidden:

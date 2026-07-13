@@ -2,7 +2,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STORE="$(cd "$REPO_ROOT" && /opt/venv/bin/python -c 'from idea_scout.storage import resolve_asset_store_root; print(resolve_asset_store_root())')"
+PYTHON_BIN="${IDEASCOUT_PYTHON:-python3}"
+STORE="$(cd "$REPO_ROOT" && "$PYTHON_BIN" -c 'from idea_scout.storage import resolve_asset_store_root; print(resolve_asset_store_root())')"
 BATCH="${IDEASCOUT_HIGH_IMPACT_BATCH:-high_impact}"
 SESSION="${IDEASCOUT_HIGH_IMPACT_SESSION:-ideascout_highimpact}"
 SOURCES="${IDEASCOUT_HIGH_IMPACT_SOURCES:-ml,cvf,acl}"
@@ -29,8 +30,9 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
   exit 0
 fi
 
-printf -v CMD 'cd %q && rtk /opt/venv/bin/python scripts/high_impact_harvest.py --store %q --batch %q --sources %q --min-year %q --max-year %q --per-venue %q --cvf-per-year %q --acl-per-year %q --max-records %q --timeout %q --llm-timeout %q --review-provider %q --review-model %q --openai-base-url %q --model-command %q --delete-pdfs --rebuild-portal 2>&1 | tee -a %q' \
+printf -v CMD 'cd %q && rtk %q scripts/high_impact_harvest.py --store %q --batch %q --sources %q --min-year %q --max-year %q --per-venue %q --cvf-per-year %q --acl-per-year %q --max-records %q --timeout %q --llm-timeout %q --review-provider %q --review-model %q --openai-base-url %q --model-command %q --delete-pdfs --rebuild-portal 2>&1 | tee -a %q' \
   "$REPO_ROOT" \
+  "$PYTHON_BIN" \
   "$STORE" \
   "$BATCH" \
   "$SOURCES" \
